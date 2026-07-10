@@ -99,7 +99,15 @@ The **objective** debug signal (did tests go green) is derived from the client-r
 
 ## Data model
 
-`Problem` (bank) and `Attempt` (per-session) — see `prisma/schema.prisma`. Enum-like columns are strings and structured content is `Json`, so the schema is portable: **SQLite for local dev**, **Postgres for prod** by flipping the datasource provider and re-migrating. The `answer_key` is structured (line range + severity + failure + explanation + keywords), which is what makes grading near-deterministic.
+`Problem` (bank), `Attempt` (per-session), and `Vote` (per-session rating) — see `prisma/schema.prisma`. Enum-like columns are strings and structured content is `Json`, so the schema is portable: **SQLite for local dev**, **Postgres for prod** by flipping the datasource provider and re-migrating. The `answer_key` is structured (line range + severity + failure + explanation + keywords), which is what makes grading near-deterministic.
+
+## Community curation
+
+Generation is a one-time cost, but not every generated problem is good — so the crowd curates the shared bank (`lib/curation.ts`, all pure/tested):
+
+- Each solver can rate a problem 👍/👎. Votes are **idempotent per session** (`Vote @@unique([problemId, sessionId])`) and update **denormalized, atomically-incremented** tallies on `Problem` so the hot bank-read path never aggregates.
+- The bank is **ranked by Wilson lower bound** (a 9/10 beats a 50/60; one vote can't top the list), and problems that go clearly net-negative with enough signal are **auto-retired** (a boolean flag, not a delete) so they stop being served.
+- Result: the bank self-curates toward a strong reusable core, so cost-per-problem-served trends down and we lean on the model *less*. See **SCALING.md** for the full multi-user design (atomic counters, replicas, KV-backed limiter, request-path anatomy).
 
 ## Tech stack
 
@@ -108,8 +116,8 @@ Next.js 16 (App Router) · TypeScript · Prisma 6 + SQLite (→ Postgres) · `@m
 ## Status vs. spec milestones
 
 - **v0 (prove the loop)** — done: Pyodide+Monaco run panel, hand-authored debug problems, submit → run → grade, no accounts.
-- **v1 (the real engine)** — largely done: generation pipeline + self-check, Debug *and* Review modes with the shared morphing shell, Socratic follow-up, subsidized grading + rate limits, anonymous session history, JD paste (selects from bank; on-miss generation is the CLI today).
-- **v2 (breadth)** — not started: system design + rubric + canvas, JS/TS via WebContainers, accounts + BYOK, public/shareable bank.
+- **v1 (the real engine)** — done: generation pipeline + self-check, Debug + Review modes with the shared morphing shell, Socratic follow-up, subsidized grading + rate limits, anonymous session history, JD paste (selects from bank; on-miss generation is the CLI today).
+- **v2 (breadth)** — in progress: **system design mode** (rubric-graded design doc + interviewer) is live; **community curation** (rating, Wilson ranking, auto-retirement) is live. Still open: JS/TS via WebContainers, optional accounts + BYOK.
 
 ### Known limitations
 

@@ -48,20 +48,51 @@ async function pickProblems() {
   const { problems } = await res.json();
   const debug = problems.find((p) => p.title.includes("Webhook batcher")) || problems.find((p) => p.type === "debug");
   const review = problems.find((p) => p.title.startsWith("Add retry")) || problems.find((p) => p.type === "review");
-  return { debug, review };
+  const design = problems.find((p) => p.type === "design");
+  return { debug, review, design };
 }
 
-async function setMonaco(page, fixed) {
-  return page.evaluate((code) => {
-    const m = window.monaco;
-    if (!m) return false;
-    const models = m.editor.getModels();
-    const target = models.find((mo) => mo.getValue().includes("WebhookBatcher")) || models[0];
-    if (!target) return false;
-    target.setValue(code);
-    return true;
-  }, fixed);
+/** Set the Monaco model whose current text contains `marker` (defaults to any). */
+async function setMonaco(page, value, marker) {
+  return page.evaluate(
+    ({ code, mk }) => {
+      const m = window.monaco;
+      if (!m) return false;
+      const models = m.editor.getModels();
+      const target = (mk && models.find((mo) => mo.getValue().includes(mk))) || models[0];
+      if (!target) return false;
+      target.setValue(code);
+      return true;
+    },
+    { code: value, mk: marker },
+  );
 }
+
+const DESIGN_DOC = `# Distributed rate limiter
+
+## Requirements & assumptions
+Assume ~50k active users, peak ~10k req/s across 12 regions. Hard limit of 1000 req/min
+per user, enforced globally (not per-region). Small over-count is acceptable; under-count
+(letting users exceed) is not.
+
+## Approach & data model
+Token bucket per user: key rate_limit:{user_id} in Redis holding {tokens, last_refill}.
+Refill lazily on read. Token bucket over fixed-window to avoid boundary bursts.
+
+## Handling 12 regions
+Central Redis cluster is the source of truth so the global limit is actually global.
+Local per-region counters would let a user do 12x the limit. Accept the ~cross-region RTT
+on the hot path; colocate the limiter with a regional Redis replica for reads, writes to primary.
+
+## Failure modes
+If Redis is unreachable, fail OPEN (serve traffic) rather than reject everyone — availability
+over strict enforcement for a rate limiter. Handle clock skew by having Redis compute time,
+not the app servers. Hot single user: shard that key / add a local pre-check.
+
+## Trade-offs
+Chose global accuracy over latency: the central store adds a hop but a per-region approximation
+breaks the actual requirement. Gave up strict exactness under Redis failover.
+`;
 
 async function main() {
   const browser = await chromium.launch();
@@ -70,7 +101,7 @@ async function main() {
   page.on("console", (m) => m.type() === "error" && errors.push(`console.error: ${m.text()}`));
   page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
 
-  const { debug, review } = await pickProblems();
+  const { debug, review, design } = await pickProblems();
   log(`Problems: debug="${debug?.title}"  review="${review?.title}"`);
   if (!debug || !review) return fail("could not find a debug and a review problem in the bank");
 
@@ -96,7 +127,7 @@ async function main() {
   if (failCount === 0) return fail("buggy starter code did not fail any tests");
 
   // Fix the code, re-run — should be all green
-  const set = await setMonaco(page, FIXED_BATCH);
+  const set = await setMonaco(page, FIXED_BATCH, "WebhookBatcher");
   if (!set) return fail("could not set Monaco value");
   log("✓ applied the fix");
   await page.getByRole("button", { name: /Run tests/i }).click();
@@ -151,6 +182,34 @@ async function main() {
   await page.waitForSelector("text=%", { timeout: 60000 });
   const reviewCaught = await page.locator("text=CAUGHT").count();
   log(`✓ review graded and results rendered (${reviewCaught} caught)`);
+
+  // ---------- RATING (curation) ----------
+  await page.getByText("Was this a good problem?").waitFor({ timeout: 10000 });
+  await page.getByRole("button", { name: /👍/ }).click();
+  await page.getByText(/✓ rated/).waitFor({ timeout: 8000 });
+  log("✓ rated the problem 👍 (curation vote persisted)");
+
+  // ---------- SHUFFLE / next ----------
+  await page.getByRole("button", { name: /Next .* problem/i }).click();
+  await page.waitForURL(/\/solve\/.+/, { timeout: 15000 });
+  log("✓ 'next problem' shuffled to another problem");
+
+  // ---------- DESIGN SOLVE ----------
+  if (design) {
+    await page.goto(`${BASE}/solve/${design.id}`, { waitUntil: "networkidle" });
+    await page.waitForSelector(".monaco-editor", { timeout: 30000 });
+    await page.getByText(/Design brief/i).waitFor({ timeout: 8000 });
+    log("✓ design brief + doc editor rendered");
+    const setDoc = await setMonaco(page, DESIGN_DOC, "Distributed rate limiter");
+    if (!setDoc) return fail("could not set design doc");
+    await page.getByRole("button", { name: /Submit design/i }).click();
+    await page.waitForSelector("text=%", { timeout: 60000 });
+    const designCaught = await page.locator("text=CAUGHT").count();
+    log(`✓ design graded against rubric and results rendered (${designCaught} dimensions caught)`);
+    if (designCaught === 0) return fail("design doc addressing 5 dimensions scored 0 caught — grading likely broken");
+  } else {
+    log("… no design problem in bank, skipping design flow");
+  }
 
   await page.screenshot({ path: `${SHOT}/e2e-final.png`, fullPage: true }).catch(() => {});
   await browser.close();
