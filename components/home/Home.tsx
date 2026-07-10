@@ -19,6 +19,12 @@ const TYPE_LABEL: Record<ProblemType, string> = {
 
 type TypeFilter = "any" | ProblemType;
 
+const QUALITY_LABEL: Record<ProblemSummary["quality"], string> = {
+  good: "★ community pick",
+  mixed: "mixed",
+  new: "new",
+};
+
 /**
  * Landing page (spec §6). Ports the v1.html home: hero, JD-tailoring card,
  * "pick up where the bank left off" list, and the three-track grid. Since v1
@@ -36,6 +42,8 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
     return map;
   }, [problems]);
 
+  const [shuffling, setShuffling] = useState(false);
+
   /** Pick a bank problem matching the current filters (best-effort) and open it. */
   function generate() {
     const byBoth = problems.find((p) => (type === "any" || p.type === type) && p.difficulty === difficulty);
@@ -44,7 +52,20 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
     if (target) router.push(`/solve/${target.id}`);
   }
 
-  const recent = problems.slice(0, 4);
+  /** Jump to a random non-retired problem, honoring the type filter. */
+  async function shuffle() {
+    setShuffling(true);
+    try {
+      const q = type === "any" ? "" : `?type=${type}`;
+      const res = await fetch(`/api/problems/random${q}`);
+      const { id } = await res.json();
+      router.push(id ? `/solve/${id}` : "/");
+    } catch {
+      setShuffling(false);
+    }
+  }
+
+  const recent = problems.slice(0, 6);
 
   return (
     <div className={styles.wrap}>
@@ -97,12 +118,21 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
         </div>
 
         <div className={`${styles.card} ${styles.side}`}>
-          <h3>Or pick up where the bank left off</h3>
+          <div className={styles.sideHead}>
+            <h3>From the bank</h3>
+            <button className={styles.shuffle} onClick={shuffle} disabled={shuffling}>
+              {shuffling ? "…" : "⤨ Shuffle"}
+            </button>
+          </div>
           {recent.map((p) => (
             <Link key={p.id} href={`/solve/${p.id}`} className={styles.bankrow}>
               <span className={`pill ${TYPE_PILL[p.type]}`}>{TYPE_LABEL[p.type]}</span>
               <span className={styles.t}>{p.title}</span>
-              <span className={styles.diff}>{p.difficulty}</span>
+              <span className={styles.rowmeta}>
+                {p.timesAttempted > 0 && <span className={styles.attempts}>{p.timesAttempted}×</span>}
+                {p.quality !== "new" && <span className={`${styles.quality} ${styles[`q_${p.quality}`]}`}>{QUALITY_LABEL[p.quality]}</span>}
+                <span className={styles.diff}>{p.difficulty}</span>
+              </span>
             </Link>
           ))}
         </div>
@@ -172,10 +202,9 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
           <TrackCard
             kind="design"
             title="System design"
-            desc="Think out loud. Sketch on a canvas while an AI interviewer probes requirements, capacity, and failure modes."
+            desc="Think out loud. Write a design doc while an AI interviewer probes requirements, capacity math, and failure modes — graded on a rubric."
             go="Interviewer-led session →"
-            href="/"
-            badge="phase 2"
+            href={firstOfType.design ? `/solve/${firstOfType.design}` : "/"}
           />
         </div>
       </section>
