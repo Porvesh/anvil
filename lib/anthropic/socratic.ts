@@ -7,8 +7,11 @@
  * prefix (problem + answer key) and maps the transcript to message turns.
  */
 import { MAX_TOKENS } from "./models";
-import { sseFromMessages, type ChatTurn } from "./stream";
+import { ensureUserFirst, sseFromMessages, type ChatTurn } from "./stream";
 import type { ChatMessage, Grade, Problem } from "../types";
+
+const OPENING_KICKOFF =
+  "Begin the follow-up — open with your first probing question about the most important issue I missed.";
 
 const SYSTEM_ROLE = [
   "You are a senior engineer running a post-review follow-up, in the style of a sharp but supportive interviewer.",
@@ -61,15 +64,8 @@ export function streamSocraticSSE(
   userMessage?: string,
   onFinal?: (interviewerReply: string) => void | Promise<void>,
 ): ReadableStream<Uint8Array> {
-  const messages: ChatTurn[] = [];
-  if (history.length === 0) {
-    messages.push({
-      role: "user",
-      content: "Begin the follow-up. Open with your first probing question about the most important issue I missed.",
-    });
-  } else {
-    messages.push(...toTurns(history));
-    if (userMessage) messages.push({ role: "user", content: userMessage });
-  }
+  const turns: ChatTurn[] = toTurns(history);
+  if (userMessage) turns.push({ role: "user", content: userMessage });
+  const messages = ensureUserFirst(turns, OPENING_KICKOFF);
   return sseFromMessages(buildSystem(problem, grade), messages, MAX_TOKENS.socratic, onFinal);
 }
