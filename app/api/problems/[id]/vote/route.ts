@@ -32,42 +32,41 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const problem = await prisma.problem.findUnique({ where: { id }, select: { id: true } });
   if (!problem) return NextResponse.json({ error: "Problem not found" }, { status: 404 });
 
-  const existing = await prisma.vote.findUnique({
-    where: { problemId_sessionId: { problemId: id, sessionId } },
-  });
-  const previous = (existing?.value ?? 0) as 1 | -1 | 0;
-  const { up, down, resulting } = voteDeltas(previous, value);
+  // Everything runs inside one interactive transaction, and the tallies are
+  // RECOMPUTED from the Vote rows (not blind-incremented) so they can never
+  // drift from the source of truth under concurrent votes — the read, the
+  // toggle decision, and the recount are all consistent within the txn.
+  const where = { problemId_sessionId: { problemId: id, sessionId } };
+  const result = await prisma.$transaction(async (tx) => {
+    const existing = await tx.vote.findUnique({ where });
+    const previous = (existing?.value ?? 0) as 1 | -1 | 0;
+    const { resulting } = voteDeltas(previous, value);
 
-  // Apply the vote row + atomic tally deltas together.
-  const [, updated] = await prisma.$transaction([
-    resulting === 0
-      ? prisma.vote.delete({ where: { problemId_sessionId: { problemId: id, sessionId } } })
-      : prisma.vote.upsert({
-          where: { problemId_sessionId: { problemId: id, sessionId } },
-          create: { problemId: id, sessionId, value: resulting },
-          update: { value: resulting },
-        }),
-    prisma.problem.update({
+    if (resulting === 0) {
+      // deleteMany (not delete) so a concurrent toggle-off that already removed
+      // the row is a no-op rather than a P2025 that aborts the transaction.
+      await tx.vote.deleteMany({ where: { problemId: id, sessionId } });
+    } else {
+      await tx.vote.upsert({ where, create: { problemId: id, sessionId, value: resulting }, update: { value: resulting } });
+    }
+
+    const [upvotes, downvotes] = await Promise.all([
+      tx.vote.count({ where: { problemId: id, value: 1 } }),
+      tx.vote.count({ where: { problemId: id, value: -1 } }),
+    ]);
+
+    // Only auto-retire, never auto-revive (an operator can un-retire deliberately).
+    const retire = shouldRetire(upvotes, downvotes);
+    const updated = await tx.problem.update({
       where: { id },
-      data: { upvotes: { increment: up }, downvotes: { increment: down } },
-      select: { upvotes: true, downvotes: true, retired: true },
-    }),
-  ]);
+      data: { upvotes, downvotes, ...(retire ? { retired: true } : {}) },
+      select: { retired: true },
+    });
 
-  // Retirement is monotonic here: only auto-retire, never auto-revive (an
-  // operator can un-retire deliberately). Cheap boolean flip, no delete.
-  let retired = updated.retired;
-  if (!retired && shouldRetire(updated.upvotes, updated.downvotes)) {
-    await prisma.problem.update({ where: { id }, data: { retired: true } });
-    retired = true;
-  }
-
-  return NextResponse.json({
-    upvotes: updated.upvotes,
-    downvotes: updated.downvotes,
-    your: resulting,
-    retired,
+    return { upvotes, downvotes, your: resulting, retired: updated.retired };
   });
+
+  return NextResponse.json(result);
 }
 
 /** GET — the caller's current vote on this problem (for restoring UI state). */
