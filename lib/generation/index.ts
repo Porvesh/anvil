@@ -32,29 +32,41 @@ export async function generateAndPersist(prisma: PrismaClient, opts: GenerateOpt
   const { type, difficulty, topic, jd, maxAttempts = 3 } = opts;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    if (type === "debug") {
-      const p = await generateDebug(difficulty, topic, jd);
-      const suite = { setup: p.setup, cases: p.cases };
-      const check = await selfCheckDebug(p.correctFiles, p.buggyFiles, suite);
-      if (!check.ok) continue;
-      const row = await prisma.problem.create({
-        data: {
-          type: "debug",
-          language: "python",
-          difficulty,
-          title: p.title,
-          prompt: p.prompt,
-          jdContext: jd ?? null,
-          files: p.buggyFiles as object,
-          testSuite: suite as object,
-          answerKey: p.answerKey as unknown as object,
-          qualityScore: check.qualityScore,
-          source: "generated",
-        },
-        select: { id: true, title: true },
-      });
-      return { ...row, qualityScore: check.qualityScore, attempts: attempt };
-    } else {
+    // A throw from generation/parse must retry, not abort the whole loop.
+    try {
+      if (type === "debug") {
+        const p = await generateDebug(difficulty, topic, jd);
+
+        // The file(s) the answer key points at ARE where the user must edit — force
+        // them editable so the model can't accidentally ship an unsolvable problem
+        // by marking the buggy module readOnly. If the key references no real file,
+        // we can't guarantee solvability — reject and retry.
+        const buggyPaths = new Set(p.answerKey.map((i) => i.file).filter((f): f is string => !!f));
+        const files = p.buggyFiles.map((f) => (buggyPaths.has(f.path) ? { ...f, readOnly: false } : f));
+        const bugFileIsEditable = files.some((f) => buggyPaths.has(f.path) && !f.readOnly);
+        if (!bugFileIsEditable) continue;
+
+        const suite = { setup: p.setup, cases: p.cases };
+        const check = await selfCheckDebug(p.correctFiles, files, suite);
+        if (!check.ok) continue;
+        const row = await prisma.problem.create({
+          data: {
+            type: "debug",
+            language: "python",
+            difficulty,
+            title: p.title,
+            prompt: p.prompt,
+            jdContext: jd ?? null,
+            files: files as object,
+            testSuite: suite as object,
+            answerKey: p.answerKey as unknown as object,
+            qualityScore: check.qualityScore,
+            source: "generated",
+          },
+          select: { id: true, title: true },
+        });
+        return { ...row, qualityScore: check.qualityScore, attempts: attempt };
+      }
       const p = await generateReview(difficulty, topic, jd);
       const check = await verifyReview(p);
       if (!check.ok) continue;
@@ -75,6 +87,10 @@ export async function generateAndPersist(prisma: PrismaClient, opts: GenerateOpt
         select: { id: true, title: true },
       });
       return { ...row, qualityScore: check.qualityScore, attempts: attempt };
+    } catch {
+      // A transient generation/parse/streaming failure retries within budget
+      // rather than aborting every remaining attempt.
+      continue;
     }
   }
   return null;

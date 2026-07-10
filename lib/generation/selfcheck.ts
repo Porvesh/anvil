@@ -40,11 +40,13 @@ try:
     for c in cases:
         try:
             exec(c["body"], dict(ns))
-            out["tests"].append({"name": c["name"], "passed": True})
+            out["tests"].append({"name": c["name"], "passed": True, "assertion": False})
         except AssertionError as e:
-            out["tests"].append({"name": c["name"], "passed": False, "message": str(e) or "assert"})
+            # a behavioural failure — the intended kind of bug
+            out["tests"].append({"name": c["name"], "passed": False, "assertion": True, "message": str(e) or "assert"})
         except Exception as e:
-            out["tests"].append({"name": c["name"], "passed": False, "message": fmt(e)})
+            # a crash (TypeError/KeyError/...) — not a clean behavioural mismatch
+            out["tests"].append({"name": c["name"], "passed": False, "assertion": False, "message": fmt(e)})
 except Exception as e:
     out["error"] = fmt(e)
 finally:
@@ -54,8 +56,14 @@ print(json.dumps(out))
 `;
 
 interface RunOutput {
-  tests: { name: string; passed: boolean; message?: string }[];
+  tests: { name: string; passed: boolean; assertion?: boolean; message?: string }[];
   error: string | null;
+}
+
+/** A project path is unsafe if it could escape the temp root when written
+ *  server-side (absolute, parent traversal, or empty). Reject such problems. */
+function unsafePath(p: string): boolean {
+  return !p || p.trim() === "" || p.startsWith("/") || p.split(/[\\/]/).includes("..");
 }
 
 /** Execute a multi-file project against `suite` via python3 with a hard timeout.
@@ -98,6 +106,16 @@ export async function selfCheckDebug(
 ): Promise<SelfCheckResult> {
   if (!suite.cases?.length) return { ok: false, reason: "no test cases", qualityScore: 0 };
 
+  // Reject unsafe paths before ever writing to disk server-side.
+  const badPath = [...correctFiles, ...buggyFiles].map((f) => f.path).find(unsafePath);
+  if (badPath) return { ok: false, reason: `unsafe file path: ${badPath}`, qualityScore: 0 };
+
+  // Correct and buggy must describe the SAME project (same file set), or the
+  // "buggy fails" signal isn't comparable to "correct passes".
+  const correctPaths = correctFiles.map((f) => f.path).sort().join("|");
+  const buggyPaths = buggyFiles.map((f) => f.path).sort().join("|");
+  if (correctPaths !== buggyPaths) return { ok: false, reason: "correct/buggy file sets differ", qualityScore: 0 };
+
   const clean = await runPython(correctFiles, suite);
   if (clean.error) return { ok: false, reason: `correct project errored: ${clean.error}`, qualityScore: 0 };
   if (!clean.tests.every((t) => t.passed))
@@ -110,6 +128,10 @@ export async function selfCheckDebug(
   const failing = buggy.tests.filter((t) => !t.passed);
   if (failing.length === 0)
     return { ok: false, reason: "buggy project still passes all tests — the flaw isn't real", qualityScore: 0 };
+  // At least one failure must be behavioural (an assertion), not just a crash —
+  // otherwise the user gets a confusing stack trace instead of a real bug.
+  if (!failing.some((t) => t.assertion))
+    return { ok: false, reason: "buggy project only crashes tests (no behavioural/assertion failure)", qualityScore: 0.2 };
 
   const failRatio = failing.length / buggy.tests.length;
   const qualityScore = failRatio >= 1 ? 0.7 : 1 - Math.abs(0.5 - failRatio);

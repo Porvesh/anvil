@@ -26,16 +26,29 @@ async function streamStructured<T extends z.ZodTypeAny>(schema: T, system: strin
     model: MODELS.generation,
     max_tokens: MAX_TOKENS.generation,
     thinking: { type: "adaptive" },
+    // Low effort keeps latency sane (unbounded thinking made this 2-6 min); the
+    // execute-to-verify self-check is what guarantees quality, not deep thinking.
+    output_config: { format: zodOutputFormat(schema), effort: "low" },
     system,
     messages: [{ role: "user", content: user }],
-    output_config: { format: zodOutputFormat(schema) },
   });
   const msg = await stream.finalMessage();
+  if (msg.stop_reason === "max_tokens") {
+    throw new Error("generation truncated (hit max_tokens) — retrying");
+  }
   const text = msg.content
     .filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")
     .map((b) => b.text)
-    .join("");
-  return schema.parse(JSON.parse(text));
+    .join("")
+    .trim();
+  if (!text) throw new Error("generation produced no text output — retrying");
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    throw new Error("generation produced invalid JSON — retrying");
+  }
+  return schema.parse(json);
 }
 
 const fileSchema = z.object({

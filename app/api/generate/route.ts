@@ -37,7 +37,9 @@ export async function POST(req: Request) {
     type === "any" ? (jd && /review|pull request|\bpr\b/i.test(jd) ? "review" : "debug") : type;
 
   try {
-    const result = await generateAndPersist(prisma, { type: resolvedType, difficulty, jd, maxAttempts: 3 });
+    // Bound wall-clock in the request path: each attempt is a full streaming
+    // generation + self-check, so cap at 2 (the offline CLI uses more).
+    const result = await generateAndPersist(prisma, { type: resolvedType, difficulty, jd, maxAttempts: 2 });
     if (!result) {
       return NextResponse.json({ error: "Couldn't verify a fresh problem this time — try again." }, { status: 502 });
     }
