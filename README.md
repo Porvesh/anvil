@@ -1,36 +1,40 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Anvil ⚒️
 
-## Getting Started
+**Interview practice for the skills LeetCode ignores** — debugging, code review, and (soon) system design. Free, browser-based, AI-graded.
 
-First, run the development server:
+> LeetCode drills algorithmic puzzles because a unit-test harness says right or wrong instantly. But the skills that actually break candidates — reading unfamiliar code under pressure, catching the subtle bug in a plausible AI-written PR, reasoning through a design out loud — have no such oracle. Anvil builds one.
+
+## The core idea
+
+**The AI plants the flaws, so the grader holds the answer key.** Every problem starts as clean, correct code; realistic flaws are seeded into it and verified real by executing the code. Grading then stops being subjective: *which of the known flaws did you catch, how precisely, and did you raise false positives?*
+
+- **Debug** — runnable code + a bug-report symptom. Edit and re-run in your browser (Python via WebAssembly — nothing leaves your machine) until the tests go green.
+- **Code review** — a plausible AI-generated PR hiding 1–3 planted flaws. Leave line comments, submit, then defend them.
+- After grading, an **AI interviewer probes exactly what you missed**, one Socratic question at a time — that follow-up is the actual lesson.
+
+## Quick start
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run db:migrate        # create the local SQLite db
+npm run seed              # load the hand-authored problem bank
+echo 'ANTHROPIC_API_KEY=sk-ant-…' >> .env   # grading + interviewer need it
+npm run dev               # → http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Commands
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Command | What it does |
+|---|---|
+| `npm run dev` | Dev server on :3000 |
+| `npm test` | Unit tests (grading matcher) |
+| `npm run e2e` | Full-loop check in headless Chromium (needs `dev` running) |
+| `npm run seed` | Reset the hand-authored problem bank |
+| `npm run generate:bank -- --type debug --count 3` | Generate new problems offline (Sonnet + executed self-check) |
+| `npm run build` | Production build |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## How it's put together
 
-## Learn More
+Browser = compute layer (Pyodide in a Web Worker runs untrusted code); a thin Next.js backend serves problems (answer keys stripped), grades against the seeded key (deterministic line-anchor matcher + Haiku judgment), and streams the Socratic follow-up over SSE. Full details in [ARCHITECTURE.md](ARCHITECTURE.md); product rationale in [docs/spec.md](docs/spec.md).
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+*"Anvil" is a working title. The logo is a placeholder. The forge metaphor — hammering raw skill into shape under heat — is the point.*
