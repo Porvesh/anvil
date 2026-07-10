@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { toProblem } from "@/lib/problem";
-import { gradeDebug, gradeReview } from "@/lib/grading";
+import { gradeDebug, gradeDesign, gradeReview } from "@/lib/grading";
 import { gradeBodySchema } from "@/lib/validation";
 import { clientKey, rateLimit } from "@/lib/ratelimit";
 import type { RunRecord } from "@/lib/types";
@@ -48,23 +48,33 @@ export async function POST(req: Request) {
     grade = await gradeDebug(problem, submission.code, submission.runHistory, testsPassed);
     storedSubmission = { code: submission.code };
     runHistory = submission.runHistory;
-  } else {
+  } else if (submission.mode === "review") {
     if (problem.type !== "review") {
       return NextResponse.json({ error: "Submission mode does not match problem type" }, { status: 400 });
     }
     grade = await gradeReview(problem, submission.comments);
     storedSubmission = submission.comments;
+  } else {
+    if (problem.type !== "design") {
+      return NextResponse.json({ error: "Submission mode does not match problem type" }, { status: 400 });
+    }
+    grade = await gradeDesign(problem, submission.doc);
+    storedSubmission = { doc: submission.doc };
   }
 
-  const attempt = await prisma.attempt.create({
-    data: {
-      problemId,
-      sessionId,
-      submission: storedSubmission as object,
-      runHistory: (runHistory ?? undefined) as object | undefined,
-      grade: grade as unknown as object,
-    },
-  });
+  const [attempt] = await prisma.$transaction([
+    prisma.attempt.create({
+      data: {
+        problemId,
+        sessionId,
+        submission: storedSubmission as object,
+        runHistory: (runHistory ?? undefined) as object | undefined,
+        grade: grade as unknown as object,
+      },
+    }),
+    // Popularity signal for the bank — atomic so concurrent solvers don't clobber.
+    prisma.problem.update({ where: { id: problemId }, data: { timesAttempted: { increment: 1 } } }),
+  ]);
 
   return NextResponse.json({ attemptId: attempt.id, grade });
 }

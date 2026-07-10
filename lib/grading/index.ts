@@ -13,7 +13,7 @@ import type {
   RunRecord,
 } from "../types";
 import { matchReviewComments } from "./matcher";
-import { judgeDebug, judgeReview } from "../anthropic/grade";
+import { judgeDebug, judgeDesign, judgeReview } from "../anthropic/grade";
 
 /** Clamp to the 0–100 integer range. */
 function clampScore(n: number): number {
@@ -74,6 +74,44 @@ export async function gradeReview(
     summary: judgment.summary,
     outcomes,
     falsePositives,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Design
+// ---------------------------------------------------------------------------
+
+// Rubric coverage carries the score; judged depth refines it.
+const COVERAGE_WEIGHT = 0.7;
+const DEPTH_WEIGHT = 0.3;
+
+export async function gradeDesign(problem: Problem, doc: string): Promise<Grade> {
+  const judgment = await judgeDesign(problem, doc);
+
+  const outcomes: IssueOutcome[] = problem.answerKey.map<IssueOutcome>((issue) => {
+    const verdict = judgment.aspects.find((a) => a.issueId === issue.id);
+    const addressed = verdict?.addressed ?? false;
+    return {
+      issueId: issue.id,
+      status: addressed ? "caught" : "missed",
+      severity: issue.severity,
+      failure: issue.failure,
+      explanation: issue.explanation,
+      matchedOn: addressed ? verdict?.note : undefined,
+    };
+  });
+
+  const total = problem.answerKey.length || 1;
+  const coverage = (outcomes.filter((o) => o.status === "caught").length / total) * 100;
+  const depth = Math.max(0, Math.min(100, judgment.depthScore));
+  const score = clampScore(coverage * COVERAGE_WEIGHT + depth * DEPTH_WEIGHT);
+
+  return {
+    score,
+    headline: judgment.headline,
+    summary: judgment.summary,
+    outcomes,
+    falsePositives: [],
   };
 }
 

@@ -13,6 +13,7 @@ const bodySchema = z.object({
   code: z.string().optional(),
   output: z.string().optional(),
   diffText: z.string().optional(),
+  doc: z.string().optional(),
   history: z
     .array(z.object({ role: z.enum(["interviewer", "user"]), content: z.string() }))
     .default([]),
@@ -26,11 +27,11 @@ export async function POST(req: Request) {
 
   const parsed = bodySchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid request" }, { status: 400 });
-  const { problemId, code, output, diffText, history, userMessage } = parsed.data;
+  const { problemId, code, output, diffText, doc, history, userMessage } = parsed.data;
 
   const row = await prisma.problem.findUnique({ where: { id: problemId } });
   if (!row) return NextResponse.json({ error: "Problem not found" }, { status: 404 });
 
-  const stream = streamHintSSE(toPublicProblem(row), { code, output, diffText }, history, userMessage);
+  const stream = streamHintSSE(toPublicProblem(row), { code, output, diffText, doc }, history, userMessage);
   return new Response(stream, { headers: SSE_HEADERS });
 }

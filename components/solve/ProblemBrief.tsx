@@ -32,12 +32,12 @@ export function ProblemBrief({
   return (
     <div className={styles.brief}>
       <button className={styles.header} onClick={() => setOpen((o) => !o)} aria-expanded={open}>
-        <span className={styles.eyebrow}>{type === "debug" ? "Bug report" : "Review brief"}</span>
+        <span className={styles.eyebrow}>{type === "debug" ? "Bug report" : type === "design" ? "Design brief" : "Review brief"}</span>
         <div className={styles.chips}>
           <span className={`${styles.chip} ${styles.chipDiff}`}>{difficulty}</span>
-          <span className={styles.chip}>python</span>
+          {type !== "design" && <span className={styles.chip}>python</span>}
           <span className={styles.chip}>
-            {issueCount} seeded {issueCount === 1 ? "flaw" : "flaws"}
+            {issueCount} {type === "design" ? (issueCount === 1 ? "rubric dimension" : "rubric dimensions") : issueCount === 1 ? "seeded flaw" : "seeded flaws"}
           </span>
           <span className={`${styles.toggle} ${open ? styles.open : ""}`}>▼</span>
         </div>

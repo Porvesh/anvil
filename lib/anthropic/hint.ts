@@ -26,6 +26,8 @@ export interface HintContext {
   output?: string;
   /** review: the diff text under review. */
   diffText?: string;
+  /** design: the user's in-progress design doc. */
+  doc?: string;
 }
 
 function buildSystem(problem: PublicProblem, ctx: HintContext) {
@@ -37,6 +39,7 @@ function buildSystem(problem: PublicProblem, ctx: HintContext) {
     ctx.code ? `\nCURRENT CODE:\n${ctx.code}` : "",
     ctx.output ? `\nLATEST OUTPUT:\n${ctx.output}` : "",
     ctx.diffText ? `\nDIFF UNDER REVIEW:\n${ctx.diffText}` : "",
+    ctx.doc ? `\nCURRENT DESIGN DOC (work in progress):\n${ctx.doc}` : "",
   ]
     .filter(Boolean)
     .join("\n");

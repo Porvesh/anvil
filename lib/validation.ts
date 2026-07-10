@@ -26,6 +26,10 @@ export const submissionSchema = z.discriminatedUnion("mode", [
     mode: z.literal("review"),
     comments: z.array(reviewCommentSchema),
   }),
+  z.object({
+    mode: z.literal("design"),
+    doc: z.string().min(1),
+  }),
 ]);
 
 export const gradeBodySchema = z.object({

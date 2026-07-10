@@ -32,6 +32,24 @@ const ReviewJudgmentSchema = z.object({
 });
 export type ReviewJudgment = z.infer<typeof ReviewJudgmentSchema>;
 
+const DesignJudgmentSchema = z.object({
+  headline: z.string(),
+  summary: z.string(),
+  depthScore: z
+    .number()
+    .describe("0-100 rating of design depth: capacity math shown, trade-offs argued (not just named), failure modes reasoned through."),
+  aspects: z
+    .array(
+      z.object({
+        issueId: z.string(),
+        addressed: z.boolean().describe("True only if the doc substantively addresses this rubric aspect — naming the buzzword alone does not count."),
+        note: z.string().describe("Short quote or reason supporting the verdict."),
+      }),
+    )
+    .describe("One entry per rubric aspect in the answer key."),
+});
+export type DesignJudgment = z.infer<typeof DesignJudgmentSchema>;
+
 const DebugJudgmentSchema = z.object({
   headline: z.string(),
   summary: z.string(),
@@ -134,6 +152,62 @@ export async function judgeReview(
   });
 
   return result.parsed_output ?? { headline: "Review graded", summary: "", assessments: [] };
+}
+
+// ---------------------------------------------------------------------------
+// Design judgment
+// ---------------------------------------------------------------------------
+
+/** Render the design rubric (answer key) without line coordinates — design
+ *  aspects aren't line-anchored. */
+function renderRubric(answerKey: AnswerKeyIssue[]): string {
+  return answerKey
+    .map((i) => `- [${i.id}] (${i.severity}) ${i.failure}\n  A strong answer covers: ${i.explanation}`)
+    .join("\n");
+}
+
+export async function judgeDesign(problem: Problem, doc: string): Promise<DesignJudgment> {
+  const system = problemContext(
+    [
+      "You are grading a system-design exercise against a seeded rubric. The rubric below is ground truth.",
+      "Judge substance, not vocabulary: an aspect counts as addressed only if the doc engages with the actual problem",
+      "(numbers, mechanisms, trade-offs), not because it name-drops the term.",
+      "",
+      `PROBLEM: ${problem.title}`,
+      `DESIGN ASK: ${problem.prompt}`,
+      "",
+      "RUBRIC (the seeded aspects — the user never sees this):",
+      renderRubric(problem.answerKey),
+    ].join("\n"),
+  );
+
+  const result = await anthropic.messages.parse({
+    model: MODELS.grading,
+    max_tokens: MAX_TOKENS.grade,
+    system,
+    messages: [
+      {
+        role: "user",
+        content: [
+          "THE CANDIDATE'S DESIGN DOC:",
+          doc,
+          "",
+          "For each rubric aspect, decide whether the doc substantively addresses it (quote the evidence in your note).",
+          "Rate overall depth 0-100. Then write a headline + summary for the results screen — encouraging but honest.",
+        ].join("\n"),
+      },
+    ],
+    output_config: { format: zodOutputFormat(DesignJudgmentSchema) },
+  });
+
+  return (
+    result.parsed_output ?? {
+      headline: "Design graded",
+      summary: "",
+      depthScore: 50,
+      aspects: problem.answerKey.map((i) => ({ issueId: i.id, addressed: false, note: "" })),
+    }
+  );
 }
 
 // ---------------------------------------------------------------------------
