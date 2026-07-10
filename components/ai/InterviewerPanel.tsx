@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, Fragment } from "react";
 import type { ChatMessage } from "@/lib/types";
+import { useVoice } from "@/lib/useVoice";
 import styles from "./InterviewerPanel.module.css";
 
 /** Render `backtick` spans as <code>. Keeps interviewer text readable. */
@@ -42,6 +43,26 @@ export function InterviewerPanel({
   const [draft, setDraft] = useState("");
   const chatRef = useRef<HTMLDivElement>(null);
 
+  // --- voice: dictate a question (STT) + hear replies (TTS) ---
+  const voice = useVoice();
+  const [speakReplies, setSpeakReplies] = useState(false);
+  const lastSpokenRef = useRef("");
+
+  // Speak each finished interviewer reply aloud when TTS is on.
+  useEffect(() => {
+    if (!speakReplies || busy) return;
+    const last = messages[messages.length - 1];
+    if (last?.role === "interviewer" && last.content && last.content !== lastSpokenRef.current) {
+      lastSpokenRef.current = last.content;
+      voice.speak(last.content.replace(/`/g, "")); // read code identifiers plainly
+    }
+  }, [messages, busy, speakReplies, voice]);
+
+  // Turning speech off silences anything mid-utterance.
+  useEffect(() => {
+    if (!speakReplies) voice.cancelSpeak();
+  }, [speakReplies, voice]);
+
   // Auto-scroll to the newest content as it streams in.
   useEffect(() => {
     const el = chatRef.current;
@@ -53,6 +74,24 @@ export function InterviewerPanel({
     if (!body || busy) return;
     setDraft("");
     onSend(body);
+  }
+
+  function toggleMic() {
+    if (busy) return;
+    if (voice.listening) {
+      voice.stop();
+      return;
+    }
+    // Live transcript fills the box; when you stop talking it sends hands-free.
+    voice.start(
+      (t) => setDraft(t),
+      (final) => {
+        if (final) {
+          setDraft("");
+          onSend(final);
+        }
+      },
+    );
   }
 
   // The typing indicator shows while a reply is pending but hasn't produced
@@ -104,9 +143,30 @@ export function InterviewerPanel({
 
       <div className={styles.chatbox}>
         <div className={styles.inrow}>
+          {voice.support.tts && (
+            <button
+              className={`${styles.voicebtn} ${speakReplies ? styles.voiceOn : ""}`}
+              onClick={() => setSpeakReplies((s) => !s)}
+              title={speakReplies ? "Interviewer voice on — click to mute" : "Hear the interviewer's replies aloud"}
+              aria-label="Toggle interviewer voice"
+            >
+              {speakReplies ? "🔊" : "🔈"}
+            </button>
+          )}
+          {voice.support.stt && (
+            <button
+              className={`${styles.voicebtn} ${voice.listening ? styles.listening : ""}`}
+              onClick={toggleMic}
+              disabled={busy}
+              title={voice.listening ? "Listening… click to stop" : "Talk to the interviewer"}
+              aria-label="Dictate a question"
+            >
+              🎙
+            </button>
+          )}
           <textarea
             value={draft}
-            placeholder={placeholder}
+            placeholder={voice.listening ? "Listening…" : placeholder}
             spellCheck={false}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
@@ -122,7 +182,7 @@ export function InterviewerPanel({
             </svg>
           </button>
         </div>
-        <div className={styles.hint}>{footer}</div>
+        <div className={styles.hint}>{voice.listening ? "Speak now — I'll send when you pause." : footer}</div>
       </div>
     </div>
   );
