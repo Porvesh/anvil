@@ -81,6 +81,19 @@
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--edge-soft);
+  position: relative; /* anchors the grading overlay */
+}
+.error {
+  font-size: 12.5px;
+  color: var(--red);
+  background: rgba(229, 97, 94, 0.1);
+  border: 1px solid rgba(229, 97, 94, 0.3);
+  border-radius: 7px;
+  padding: 5px 11px;
+  max-width: 340px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 @media (max-width: 900px) {

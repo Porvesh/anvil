@@ -1,16 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ChatMessage, PublicProblem, ReviewComment, RunRecord, RunResult } from "@/lib/types";
+import type { ChatMessage, Grade, PublicProblem, ReviewComment, RunRecord, RunResult } from "@/lib/types";
 import { getRunner } from "@/lib/pyodide/runner";
 import { getSessionId } from "@/lib/session";
 import { streamSSE } from "@/lib/sseClient";
 import { DebugPane } from "./DebugPane";
 import { ReviewPane } from "./ReviewPane";
+import { ProblemBrief } from "./ProblemBrief";
+import { GradingOverlay } from "./GradingOverlay";
 import { InterviewerPanel } from "@/components/ai/InterviewerPanel";
 import { Results } from "@/components/results/Results";
 import shell from "./Solve.module.css";
-import type { Grade } from "@/lib/types";
 
 type Phase = "solve" | "results";
 
@@ -27,6 +28,9 @@ function diffToText(problem: PublicProblem): string {
     .join("\n");
 }
 
+const SOLVE_SUGGESTIONS = ["Where should I start?", "Give me a nudge — not the answer", "Why would this matter in prod?"];
+const RESULTS_SUGGESTIONS = ["Walk me through what I missed", "How would I catch this next time?"];
+
 /**
  * The solve workspace (spec §6): the shared shell whose center pane morphs by
  * mode, plus the persistent interviewer panel. Owns the whole loop —
@@ -42,11 +46,12 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
   const [comments, setComments] = useState<ReviewComment[]>([]);
   const [running, setRunning] = useState(false);
   const [runResult, setRunResult] = useState<RunResult | null>(null);
-  const runHistory = useRef<RunRecord[]>([]);
+  const [runs, setRuns] = useState<RunRecord[]>([]);
 
   // --- flow state ---
   const [phase, setPhase] = useState<Phase>("solve");
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [grade, setGrade] = useState<Grade | null>(null);
   const attemptId = useRef<string | null>(null);
 
@@ -55,8 +60,8 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
     {
       role: "interviewer",
       content: isReview
-        ? "Read the PR carefully — the description sounds reasonable, which is the point. Leave line comments where something's off, then submit. Ping me for a nudge."
-        : `${problem.prompt} Read before you change anything — I'll stay out of your way. Ping me for a nudge.`,
+        ? "Read the PR like you'd review a teammate's — the description sounds reasonable, which is exactly the trap. Click a line to comment. I'm here if you want a nudge."
+        : "Read the bug report above, then trace the code before changing anything. Run early, run often — the failing tests are your map. Ping me for a nudge.",
     },
   ]);
   const [aiBusy, setAiBusy] = useState(false);
@@ -68,25 +73,26 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
     return () => clearInterval(id);
   }, []);
 
-  // Warm the Pyodide runtime for debug problems so the first run is fast.
-  useEffect(() => {
-    if (isDebug) getRunner().preload();
-  }, [isDebug]);
+  const elapsedRef = useRef(elapsed);
+  elapsedRef.current = elapsed;
 
   // --- run code (debug) ---
   const runCode = useCallback(async () => {
-    if (!problem.testSuite) return;
+    if (!problem.testSuite || running) return;
     setRunning(true);
     const result = await getRunner().run(code, problem.testSuite);
     setRunResult(result);
-    runHistory.current.push({
-      passed: result.tests.filter((t) => t.passed).length,
-      failed: result.tests.filter((t) => !t.passed).length + (result.error || result.timedOut ? 1 : 0),
-      output: result.output,
-      at: elapsed,
-    });
+    setRuns((prev) => [
+      ...prev,
+      {
+        passed: result.tests.filter((t) => t.passed).length,
+        failed: result.tests.filter((t) => !t.passed).length + (result.error || result.timedOut ? 1 : 0),
+        output: result.output,
+        at: elapsedRef.current,
+      },
+    ]);
     setRunning(false);
-  }, [code, problem.testSuite, elapsed]);
+  }, [code, problem.testSuite, running]);
 
   // --- streaming interviewer helper ---
   const streamInterviewer = useCallback(async (url: string, body: object, userText?: string) => {
@@ -117,8 +123,9 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
   // --- submit for grading ---
   const submit = useCallback(async () => {
     setSubmitting(true);
+    setSubmitError(null);
     const submission = isDebug
-      ? { mode: "debug" as const, code, runHistory: runHistory.current }
+      ? { mode: "debug" as const, code, runHistory: runs }
       : { mode: "review" as const, comments };
 
     try {
@@ -127,7 +134,10 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ problemId: problem.id, sessionId: getSessionId(), submission }),
       });
-      if (!res.ok) throw new Error(`Grading failed (${res.status})`);
+      if (!res.ok) {
+        const detail = await res.json().catch(() => null);
+        throw new Error(detail?.error ?? `Grading failed (${res.status})`);
+      }
       const data: { attemptId: string; grade: Grade } = await res.json();
       attemptId.current = data.attemptId;
       setGrade(data.grade);
@@ -136,11 +146,11 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
       // Open the Socratic follow-up.
       void streamInterviewer("/api/socratic", { attemptId: data.attemptId, history: [] });
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Something went wrong grading your submission.");
+      setSubmitError(err instanceof Error ? err.message : "Something went wrong grading your submission.");
     } finally {
       setSubmitting(false);
     }
-  }, [isDebug, code, comments, problem.id, streamInterviewer]);
+  }, [isDebug, code, comments, runs, problem.id, streamInterviewer]);
 
   // --- interviewer input (mode depends on phase) ---
   const onInterviewerSend = useCallback(
@@ -196,10 +206,16 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
         <div className={shell.grow} />
         {phase === "solve" && (
           <>
+            {submitError && <span className={shell.error}>{submitError}</span>}
             <button className={shell.hintbtn} onClick={askHint} disabled={aiBusy}>
               Ask for a hint
             </button>
-            <button className={shell.submit} onClick={submit} disabled={!canSubmit} title={isReview && comments.length === 0 ? "Leave at least one comment first" : undefined}>
+            <button
+              className={shell.submit}
+              onClick={submit}
+              disabled={!canSubmit}
+              title={isReview && comments.length === 0 ? "Leave at least one comment first" : undefined}
+            >
               {submitting ? "Grading…" : submitLabel}
             </button>
           </>
@@ -209,15 +225,19 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
       <div className={shell.stage}>
         <div className={shell.center}>
           {phase === "results" && grade ? (
-            <Results grade={grade} onReview={() => setPhase("solve")} />
+            <Results grade={grade} mode={isDebug ? "debug" : "review"} onReview={() => setPhase("solve")} />
           ) : isDebug ? (
-            <DebugPane code={code} onCodeChange={setCode} onRun={runCode} running={running} result={runResult} />
+            <>
+              <ProblemBrief type="debug" difficulty={problem.difficulty} prompt={problem.prompt} issueCount={problem.answerKeyCount} />
+              <DebugPane code={code} onCodeChange={setCode} onRun={runCode} running={running} result={runResult} runs={runs} />
+            </>
           ) : isReview ? (
             <ReviewPane
               title={problem.title}
               prompt={problem.prompt}
               prMeta={problem.prMeta}
               diff={problem.diff ?? []}
+              issueCount={problem.answerKeyCount}
               comments={comments}
               onAddComment={(line, body) => setComments((c) => [...c, { line, body }])}
               onRemoveComment={(index) => setComments((c) => c.filter((_, i) => i !== index))}
@@ -225,6 +245,7 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
           ) : (
             <div style={{ padding: 40, color: "var(--steel)" }}>System design is a phase-2 mode — not available yet.</div>
           )}
+          {submitting && <GradingOverlay />}
         </div>
 
         <InterviewerPanel
@@ -233,6 +254,7 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
           onSend={onInterviewerSend}
           busy={aiBusy}
           footer={interviewerFooter}
+          suggestions={phase === "results" ? RESULTS_SUGGESTIONS : SOLVE_SUGGESTIONS}
         />
       </div>
     </div>

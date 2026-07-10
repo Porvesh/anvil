@@ -129,6 +129,63 @@
   text-transform: uppercase;
 }
 
+.how {
+  margin: 52px 0 8px;
+}
+.howLead {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.howLead h2 {
+  font-family: var(--disp);
+  font-weight: 600;
+  font-size: 20px;
+  margin: 0;
+}
+.howGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+.howStep {
+  position: relative;
+  background: var(--slab);
+  border: 1px solid var(--edge-soft);
+  border-radius: var(--r-lg);
+  padding: 18px;
+}
+.howNum {
+  font-family: var(--disp);
+  font-weight: 700;
+  font-size: 26px;
+  color: var(--spark);
+  opacity: 0.85;
+}
+.howStep h4 {
+  font-family: var(--disp);
+  font-weight: 600;
+  font-size: 14.5px;
+  margin: 8px 0 5px;
+}
+.howStep p {
+  color: var(--steel);
+  font-size: 12.5px;
+  line-height: 1.55;
+  margin: 0;
+}
+.howStep:not(:last-child)::after {
+  content: "→";
+  position: absolute;
+  right: -14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--steel-dim);
+  font-size: 14px;
+  z-index: 1;
+}
+
 .cats {
   margin: 46px 0 70px;
 }
@@ -222,6 +279,12 @@
   }
   .catgrid {
     grid-template-columns: 1fr;
+  }
+  .howGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .howStep::after {
+    display: none;
   }
   .hero h1 {
     font-size: 38px;

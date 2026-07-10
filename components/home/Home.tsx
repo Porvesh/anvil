@@ -108,6 +108,47 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
         </div>
       </div>
 
+      <section className={styles.how}>
+        <div className={styles.howLead}>
+          <div className="eyebrow">Why this works</div>
+          <h2>The grader holds the answer key</h2>
+        </div>
+        <div className={styles.howGrid}>
+          <div className={styles.howStep}>
+            <div className={styles.howNum}>1</div>
+            <h4>Flaws are seeded, not guessed</h4>
+            <p>
+              Every problem starts as clean, correct code. Realistic flaws are planted into it — and each one is verified real by
+              actually executing the code before it enters the bank.
+            </p>
+          </div>
+          <div className={styles.howStep}>
+            <div className={styles.howNum}>2</div>
+            <h4>You solve in your browser</h4>
+            <p>
+              Python runs in a WebAssembly sandbox on your machine — no servers, no setup, no code leaving your tab. Edit, run,
+              iterate until green.
+            </p>
+          </div>
+          <div className={styles.howStep}>
+            <div className={styles.howNum}>3</div>
+            <h4>Grading is a match, not a vibe</h4>
+            <p>
+              Because the flaws are known, grading is near-deterministic: caught / missed / false-positive against the seeded
+              answer key, line by line. Precision counts — nits cost points.
+            </p>
+          </div>
+          <div className={styles.howStep}>
+            <div className={styles.howNum}>4</div>
+            <h4>The follow-up is the lesson</h4>
+            <p>
+              An interviewer then probes exactly what you missed — one Socratic question at a time — the way a strong interviewer
+              would. That conversation is where the skill actually builds.
+            </p>
+          </div>
+        </div>
+      </section>
+
       <section className={styles.cats}>
         <div className={styles.catLead}>
           <div className="eyebrow">Three tracks</div>
