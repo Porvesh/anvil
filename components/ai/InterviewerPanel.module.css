@@ -1,0 +1,128 @@
+.ai {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--slab);
+}
+.head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--edge-soft);
+}
+.av {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, var(--spark), #d64f1e);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.nm {
+  font-family: var(--disp);
+  font-weight: 600;
+  font-size: 14px;
+}
+.rl {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--steel-dim);
+}
+.chat {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.msg {
+  font-size: 13.5px;
+  line-height: 1.55;
+  display: flex;
+  flex-direction: column;
+}
+.lbl {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--steel-dim);
+  margin-bottom: 5px;
+}
+.ai .bub {
+  background: var(--slab2);
+  border: 1px solid var(--edge-soft);
+  border-radius: 3px 12px 12px 12px;
+  padding: 11px 13px;
+  color: var(--parchment-dim);
+}
+.me {
+  align-items: flex-end;
+}
+.me .bub {
+  background: rgba(90, 166, 230, 0.12);
+  border: 1px solid rgba(90, 166, 230, 0.25);
+  border-radius: 12px 3px 12px 12px;
+  padding: 11px 13px;
+  margin-left: 34px;
+}
+.bub code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--iron);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--spark-soft);
+}
+.chatbox {
+  border-top: 1px solid var(--edge-soft);
+  padding: 12px;
+}
+.inrow {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+.chatbox textarea {
+  flex: 1;
+  min-height: 40px;
+  max-height: 120px;
+  background: var(--iron);
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  color: var(--parchment);
+  font-family: var(--body);
+  font-size: 13px;
+  padding: 9px 11px;
+  resize: none;
+}
+.chatbox textarea:focus {
+  outline: none;
+  border-color: var(--blue-deep);
+}
+.send {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: var(--raise);
+  display: grid;
+  place-items: center;
+  color: var(--steel);
+  flex: none;
+}
+.send:hover {
+  color: var(--parchment);
+}
+.send:disabled {
+  opacity: 0.5;
+}
+.hint {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--steel-dim);
+  text-align: center;
+  margin-top: 8px;
+}
