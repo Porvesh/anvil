@@ -19,6 +19,13 @@ const TYPE_LABEL: Record<ProblemType, string> = {
 
 type TypeFilter = "any" | ProblemType;
 
+const DEFAULT_JD = `Senior Backend Engineer · Payments
+
+- 5+ yrs building distributed services in Python/Go
+- Own reliability of the payments API (webhooks, retries, idempotency)
+- Strong on observability, debugging production incidents
+- Comfortable reviewing others' code, incl. AI-assisted PRs`;
+
 const QUALITY_LABEL: Record<ProblemSummary["quality"], string> = {
   good: "★ community pick",
   mixed: "mixed",
@@ -43,13 +50,37 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
   }, [problems]);
 
   const [shuffling, setShuffling] = useState(false);
+  const [jd, setJd] = useState(DEFAULT_JD);
+  const [generating, setGenerating] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
 
-  /** Pick a bank problem matching the current filters (best-effort) and open it. */
-  function generate() {
-    const byBoth = problems.find((p) => (type === "any" || p.type === type) && p.difficulty === difficulty);
-    const byType = problems.find((p) => type === "any" || p.type === type);
-    const target = byBoth ?? byType ?? problems[0];
-    if (target) router.push(`/solve/${target.id}`);
+  /**
+   * Generate a NEW problem tailored to the JD (design falls back to bank
+   * selection — no live design generation yet). This actually calls the model
+   * and self-check, then opens the freshly-created problem.
+   */
+  async function generate() {
+    setGenError(null);
+    // Design has no executable oracle → serve a matching bank problem instead.
+    if (type === "design") {
+      const target = problems.find((p) => p.type === "design") ?? problems[0];
+      if (target) router.push(`/solve/${target.id}`);
+      return;
+    }
+    setGenerating(true);
+    try {
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, difficulty, jd: jd.trim() || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? `Generation failed (${res.status})`);
+      router.push(`/solve/${data.id}`);
+    } catch (err) {
+      setGenError(err instanceof Error ? err.message : "Generation failed");
+      setGenerating(false);
+    }
   }
 
   /** Jump to a random non-retired problem, honoring the type filter. */
@@ -87,15 +118,7 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
           <p className={styles.lead}>
             Paste a job description — Anvil pulls the stack, domain, and seniority to pick problems that match.
           </p>
-          <textarea
-            spellCheck={false}
-            defaultValue={`Senior Backend Engineer · Payments
-
-- 5+ yrs building distributed services in Python/Go
-- Own reliability of the payments API (webhooks, retries, idempotency)
-- Strong on observability, debugging production incidents
-- Comfortable reviewing others' code, incl. AI-assisted PRs`}
-          />
+          <textarea spellCheck={false} value={jd} onChange={(e) => setJd(e.target.value)} />
           <div className={styles.row}>
             <div className={styles.seg}>
               {(["any", "debug", "review", "design"] as TypeFilter[]).map((t) => (
@@ -111,10 +134,16 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
                 </button>
               ))}
             </div>
-            <button className={`btn-primary ${styles.cta}`} onClick={generate}>
-              Generate a problem →
+            <button className={`btn-primary ${styles.cta}`} onClick={generate} disabled={generating}>
+              {generating ? "Generating…" : type === "design" ? "Open a design problem →" : "Generate a problem →"}
             </button>
           </div>
+          {generating && (
+            <p className={styles.genNote}>
+              Writing a fresh {type === "any" ? "" : type + " "}problem tailored to your JD, then running its self-check — this takes ~20–40s.
+            </p>
+          )}
+          {genError && <p className={styles.genError}>{genError}</p>}
         </div>
 
         <div className={`${styles.card} ${styles.side}`}>
