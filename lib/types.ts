@@ -105,18 +105,27 @@ export interface Problem {
   answerKey: AnswerKeyIssue[];
   qualityScore: number | null;
   source: "authored" | "generated";
+  upvotes: number;
+  downvotes: number;
+  timesAttempted: number;
+  retired: boolean;
 }
 
 /** The problem as sent to the browser while solving — the answer key is stripped
  *  so it never leaves the server (grading happens server-side). */
 export type PublicProblem = Omit<Problem, "answerKey"> & { answerKeyCount: number };
 
-/** Compact row for the bank list. */
+/** Compact row for the bank list, with the curation signals the UI shows. */
 export interface ProblemSummary {
   id: string;
   type: ProblemType;
   title: string;
   difficulty: Difficulty;
+  upvotes: number;
+  downvotes: number;
+  timesAttempted: number;
+  /** Human quality label derived from votes (see lib/curation.ts). */
+  quality: "good" | "mixed" | "new";
 }
 
 // ---------------------------------------------------------------------------
@@ -184,7 +193,8 @@ export interface ReviewComment {
 
 export type Submission =
   | { mode: "debug"; code: string; runHistory: RunRecord[] }
-  | { mode: "review"; comments: ReviewComment[] };
+  | { mode: "review"; comments: ReviewComment[] }
+  | { mode: "design"; doc: string };
 
 /** How a single seeded issue fared against the user's submission. */
 export interface IssueOutcome {

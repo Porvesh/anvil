@@ -42,8 +42,38 @@ model Problem {
   qualityScore Float? // curation/pruning signal from generation self-check
   source       String @default("authored") // "authored" | "generated"
 
+  // --- community curation (spec §16 v2: "upvoting good problems") ---
+  // Denormalized tallies incremented atomically on each vote so the hot bank-read
+  // path never has to aggregate the Vote table. `retired` is a cheap boolean the
+  // bank query filters on, so a downvoted problem stops being served without a
+  // delete (keeps history + lets us un-retire). See lib/curation.ts.
+  upvotes        Int     @default(0)
+  downvotes      Int     @default(0)
+  timesAttempted Int     @default(0)
+  retired        Boolean @default(false)
+
   createdAt DateTime  @default(now())
   attempts  Attempt[]
+  votes     Vote[]
+
+  // Bank list filters on (retired, type, difficulty) and orders by rank — index it.
+  @@index([retired, type, difficulty])
+}
+
+/// One session's vote on a problem. The unique constraint makes voting idempotent
+/// and one-per-session (re-voting updates in place), which is what lets the tally
+/// increments stay correct under concurrency at scale.
+model Vote {
+  id        String   @id @default(cuid())
+  problemId String
+  problem   Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  sessionId String
+  value     Int // +1 upvote, -1 downvote
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([problemId, sessionId])
+  @@index([problemId])
 }
 
 /// One user's attempt at a problem, including run history, grade, and the Socratic
