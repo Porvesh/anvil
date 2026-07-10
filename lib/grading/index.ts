@@ -11,6 +11,7 @@ import type {
   Problem,
   ReviewComment,
   RunRecord,
+  SolutionFile,
 } from "../types";
 import { matchReviewComments } from "./matcher";
 import { judgeDebug, judgeDesign, judgeReview } from "../anthropic/grade";
@@ -125,11 +126,11 @@ const APPROACH_WEIGHT = 0.45;
 
 export async function gradeDebug(
   problem: Problem,
-  finalCode: string,
+  finalFiles: SolutionFile[],
   runHistory: RunRecord[],
   testsPassed: boolean,
 ): Promise<Grade> {
-  const judgment = await judgeDebug(problem, finalCode, runHistory, testsPassed);
+  const judgment = await judgeDebug(problem, finalFiles, runHistory, testsPassed);
 
   const outcomes: IssueOutcome[] = problem.answerKey.map<IssueOutcome>((issue) => {
     const verdict = judgment.issues.find((i) => i.issueId === issue.id);

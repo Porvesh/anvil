@@ -46,7 +46,7 @@ self.onmessage = async (event) => {
       pyodide.setStdout({ batched: (s) => { output += s + "\n"; } });
       pyodide.setStderr({ batched: (s) => { output += s + "\n"; } });
 
-      pyodide.globals.set("USER_CODE", msg.userCode ?? "");
+      pyodide.globals.set("FILES_JSON", msg.filesJson ?? "[]");
       pyodide.globals.set("SETUP_CODE", msg.setup ?? "");
       pyodide.globals.set("TESTS_JSON", msg.testsJson ?? "[]");
 

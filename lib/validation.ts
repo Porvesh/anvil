@@ -5,6 +5,7 @@
 import { z } from "zod";
 
 const reviewCommentSchema = z.object({
+  file: z.string().optional(),
   line: z.number().int(),
   body: z.string().min(1),
 });
@@ -16,10 +17,16 @@ const runRecordSchema = z.object({
   at: z.number(),
 });
 
+const solutionFileSchema = z.object({
+  path: z.string().min(1),
+  content: z.string(),
+  readOnly: z.boolean().optional(),
+});
+
 export const submissionSchema = z.discriminatedUnion("mode", [
   z.object({
     mode: z.literal("debug"),
-    code: z.string(),
+    files: z.array(solutionFileSchema).min(1),
     runHistory: z.array(runRecordSchema),
   }),
   z.object({

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ChatMessage, Grade, PublicProblem, ReviewComment, RunRecord, RunResult } from "@/lib/types";
+import type { ChatMessage, Grade, PublicProblem, ReviewComment, RunRecord, RunResult, SolutionFile } from "@/lib/types";
 import { getRunner } from "@/lib/pyodide/runner";
 import { getSessionId } from "@/lib/session";
 import { streamSSE } from "@/lib/sseClient";
@@ -9,6 +9,7 @@ import { DebugPane } from "./DebugPane";
 import { ReviewPane } from "./ReviewPane";
 import { DesignPane } from "./DesignPane";
 import { ProblemBrief } from "./ProblemBrief";
+import { NextStep } from "./NextStep";
 import { GradingOverlay } from "./GradingOverlay";
 import { InterviewerPanel } from "@/components/ai/InterviewerPanel";
 import { Results } from "@/components/results/Results";
@@ -58,8 +59,12 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
   const mode: "debug" | "review" | "design" = isDebug ? "debug" : isReview ? "review" : "design";
 
   // --- solve state ---
-  // `code` is the editable artifact for the mode: Python for debug, the design
-  // doc (markdown) for design. Review mode edits `comments` instead.
+  // Debug edits a multi-file project (`files`); design edits a doc (`code`);
+  // review edits `comments`.
+  const [files, setFiles] = useState<SolutionFile[]>(problem.files ?? []);
+  const [activePath, setActivePath] = useState(
+    () => (problem.files ?? []).find((f) => !f.readOnly)?.path ?? problem.files?.[0]?.path ?? "",
+  );
   const [code, setCode] = useState(problem.starterCode ?? "");
   const [comments, setComments] = useState<ReviewComment[]>([]);
   const [running, setRunning] = useState(false);
@@ -92,7 +97,7 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
   const runCode = useCallback(async () => {
     if (!problem.testSuite || running) return;
     setRunning(true);
-    const result = await getRunner().run(code, problem.testSuite);
+    const result = await getRunner().run(files, problem.testSuite);
     setRunResult(result);
     setRuns((prev) => [
       ...prev,
@@ -104,7 +109,7 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
       },
     ]);
     setRunning(false);
-  }, [code, problem.testSuite, running]);
+  }, [files, problem.testSuite, running]);
 
   // --- streaming interviewer helper ---
   // Each stream gets a generation id; a newer stream (or the submit flow, which
@@ -157,7 +162,7 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
     setSubmitting(true);
     setSubmitError(null);
     const submission = isDebug
-      ? { mode: "debug" as const, code, runHistory: runs }
+      ? { mode: "debug" as const, files, runHistory: runs }
       : isReview
         ? { mode: "review" as const, comments }
         : { mode: "design" as const, doc: code };
@@ -186,7 +191,7 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
     } finally {
       setSubmitting(false);
     }
-  }, [isDebug, isReview, code, comments, runs, problem.id, streamInterviewer]);
+  }, [isDebug, isReview, files, code, comments, runs, problem.id, streamInterviewer]);
 
   // --- interviewer input ---
   // Once an attempt is graded the conversation stays Socratic (even if the user
@@ -275,12 +280,31 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
 
       <div className={shell.stage}>
         <div className={shell.center}>
+          {phase === "solve" && (
+            <NextStep
+              mode={problem.type}
+              issueCount={problem.answerKeyCount}
+              runResult={runResult}
+              running={running}
+              commentCount={comments.length}
+              docWords={code.trim() ? code.trim().split(/\s+/).length : 0}
+            />
+          )}
           {phase === "results" && grade ? (
             <Results grade={grade} mode={mode} problemId={problem.id} problemType={problem.type} onReview={() => setPhase("solve")} />
           ) : isDebug ? (
             <>
               <ProblemBrief type="debug" difficulty={problem.difficulty} prompt={problem.prompt} issueCount={problem.answerKeyCount} />
-              <DebugPane code={code} onCodeChange={setCode} onRun={runCode} running={running} result={runResult} runs={runs} />
+              <DebugPane
+                files={files}
+                activePath={activePath}
+                onSelectFile={setActivePath}
+                onFileChange={(path, content) => setFiles((prev) => prev.map((f) => (f.path === path ? { ...f, content } : f)))}
+                onRun={runCode}
+                running={running}
+                result={runResult}
+                runs={runs}
+              />
             </>
           ) : isReview ? (
             <ReviewPane

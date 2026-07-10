@@ -26,6 +26,8 @@ export const DIFFICULTIES: Difficulty[] = ["easy", "medium", "hard"];
 export interface AnswerKeyIssue {
   /** Stable id, referenced by the grade breakdown. */
   id: string;
+  /** File the issue lives in (review: the diff file path; debug: informational). */
+  file?: string;
   /** 1-based inclusive line range in the starter code / diff the issue lives on. */
   lineStart: number;
   lineEnd: number;
@@ -50,9 +52,22 @@ export interface TestCase {
 }
 
 export interface TestSuite {
-  /** Optional Python run before the user code + tests (imports, fixtures, data files). */
+  /** Optional Python run before the tests (imports the project, fixtures, data). */
   setup?: string;
   cases: TestCase[];
+}
+
+/**
+ * One file in a multi-file project (spec: real-world problems span a package,
+ * not a single script). For debug, these are the editable source files; the
+ * test suite imports them by module path. `readOnly` files (fixtures, configs,
+ * neighbouring modules the user shouldn't touch) render but can't be edited.
+ */
+export interface SolutionFile {
+  /** Path relative to the project root, e.g. "batcher/core.py". */
+  path: string;
+  content: string;
+  readOnly?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -97,7 +112,8 @@ export interface Problem {
   title: string;
   prompt: string;
   jdContext: string | null;
-  starterCode: string | null;
+  starterCode: string | null; // legacy single-file; `files` supersedes it
+  files: SolutionFile[] | null; // debug: the editable multi-file project
   diff: DiffHunk[] | null;
   prMeta: PrMeta | null;
   testSuite: TestSuite | null;
@@ -186,13 +202,16 @@ export interface RunRecord {
 
 /** A line comment the user leaves during review. */
 export interface ReviewComment {
+  /** File path the comment is on (matches DiffHunk.file). Optional for
+   *  single-file back-compat; multi-file problems always set it. */
+  file?: string;
   /** Line number in the new file (matches DiffLine.lineNo). */
   line: number;
   body: string;
 }
 
 export type Submission =
-  | { mode: "debug"; code: string; runHistory: RunRecord[] }
+  | { mode: "debug"; files: SolutionFile[]; runHistory: RunRecord[] }
   | { mode: "review"; comments: ReviewComment[] }
   | { mode: "design"; doc: string };
 

@@ -12,7 +12,7 @@
  * Run with: npm run seed
  */
 import { PrismaClient } from "@prisma/client";
-import type { AnswerKeyIssue, DiffHunk, PrMeta, TestSuite } from "../lib/types";
+import type { AnswerKeyIssue, DiffHunk, PrMeta, SolutionFile, TestSuite } from "../lib/types";
 
 const prisma = new PrismaClient();
 
@@ -21,12 +21,16 @@ interface SeedProblem {
   difficulty: "easy" | "medium" | "hard";
   title: string;
   prompt: string;
-  starterCode?: string;
+  starterCode?: string; // design: the doc scaffold. debug uses `files`.
+  files?: SolutionFile[]; // debug: the multi-file project the user edits
   testSuite?: TestSuite;
   diff?: DiffHunk[];
   prMeta?: PrMeta;
   answerKey: AnswerKeyIssue[];
 }
+
+// Concise multi-file helper: build a package from {path: content} entries.
+const F = (path: string, content: string, readOnly = false): SolutionFile => ({ path, content, readOnly });
 
 // ---------------------------------------------------------------------------
 // DEBUG PROBLEMS — runnable, realistic, symptom-first prompts
@@ -38,12 +42,31 @@ const debugBatcher: SeedProblem = {
   title: "Webhook batcher silently drops the tail of every flush",
   prompt:
     "Support keeps hearing about missing webhook deliveries. Metrics show flush() reports fewer events sent than were queued — and when the queue holds exactly one batch worth, nothing goes out at all. No errors are logged. Find the root cause and make the suite green.",
-  starterCode: `MAX_BATCH = 8
+  files: [
+    F("webhooks/__init__.py", `from .batcher import WebhookBatcher, MAX_BATCH\n`),
+    F(
+      "webhooks/transport.py",
+      `"""Downstream transport interface (do not edit — this is the contract)."""
+
+
+class Transport:
+    def send(self, chunk):
+        """Deliver one batch of events downstream."""
+        raise NotImplementedError
+`,
+      true,
+    ),
+    F(
+      "webhooks/batcher.py",
+      `from .transport import Transport
+
+MAX_BATCH = 8
+
 
 class WebhookBatcher:
     """Collects webhook events and posts them downstream in fixed-size batches."""
 
-    def __init__(self, transport, batch_size=MAX_BATCH):
+    def __init__(self, transport: Transport, batch_size=MAX_BATCH):
         self.transport = transport
         self.batch_size = batch_size
         self.pending = []
@@ -65,9 +88,15 @@ class WebhookBatcher:
             i += self.batch_size
         self.pending = self.pending[i:]
         self.delivered += sent
-        return sent`,
+        return sent
+`,
+    ),
+  ],
   testSuite: {
-    setup: `class FakeTransport:
+    setup: `from webhooks import WebhookBatcher
+from webhooks.transport import Transport
+
+class FakeTransport(Transport):
     def __init__(self):
         self.batches = []
     def send(self, chunk):
@@ -98,8 +127,9 @@ def ev(i):
   answerKey: [
     {
       id: "flush-boundary",
-      lineStart: 21,
-      lineEnd: 21,
+      file: "webhooks/batcher.py",
+      lineStart: 22,
+      lineEnd: 22,
       severity: "major",
       failure:
         "The flush loop exits one full batch early, so the final window — including an exact final batch — is never dispatched and lingers in `pending`.",
@@ -762,6 +792,7 @@ async function main() {
         title: p.title,
         prompt: p.prompt,
         starterCode: p.starterCode ?? null,
+        files: (p.files ?? undefined) as object | undefined,
         testSuite: (p.testSuite ?? undefined) as object | undefined,
         diff: (p.diff ?? undefined) as object | undefined,
         prMeta: (p.prMeta ?? undefined) as object | undefined,

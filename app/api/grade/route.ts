@@ -45,8 +45,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Submission mode does not match problem type" }, { status: 400 });
     }
     const testsPassed = testsPassedFrom(submission.runHistory);
-    grade = await gradeDebug(problem, submission.code, submission.runHistory, testsPassed);
-    storedSubmission = { code: submission.code };
+    grade = await gradeDebug(problem, submission.files, submission.runHistory, testsPassed);
+    storedSubmission = { files: submission.files };
     runHistory = submission.runHistory;
   } else if (submission.mode === "review") {
     if (problem.type !== "review") {
