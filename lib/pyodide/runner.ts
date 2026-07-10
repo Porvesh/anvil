@@ -51,9 +51,11 @@ export class PyodideRunner {
     return worker;
   }
 
-  /** Kick off Pyodide loading ahead of the first run (e.g. on editor mount). */
-  preload(): void {
+  /** Kick off Pyodide loading ahead of the first run (e.g. on editor mount).
+   *  Resolves when the runtime is warm — lets the UI show a boot indicator. */
+  preload(): Promise<void> {
     this.ensureWorker();
+    return this.ready ?? Promise.resolve();
   }
 
   /** Run the user's code against a test suite; resolves (never rejects). */
