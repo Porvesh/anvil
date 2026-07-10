@@ -13,13 +13,16 @@ const fail = (msg) => {
   process.exitCode = 1;
 };
 
-// The intended fix for the "Webhook batcher" seed problem (see prisma/seed.ts).
-const FIXED_BATCH = `MAX_BATCH = 8
+// The intended fix for webhooks/batcher.py in the "Webhook batcher" seed problem.
+const FIXED_BATCH = `from .transport import Transport
+
+MAX_BATCH = 8
+
 
 class WebhookBatcher:
     """Collects webhook events and posts them downstream in fixed-size batches."""
 
-    def __init__(self, transport, batch_size=MAX_BATCH):
+    def __init__(self, transport: Transport, batch_size=MAX_BATCH):
         self.transport = transport
         self.batch_size = batch_size
         self.pending = []
@@ -41,7 +44,8 @@ class WebhookBatcher:
             i += self.batch_size
         self.pending = self.pending[i:]
         self.delivered += sent
-        return sent`;
+        return sent
+`;
 
 async function pickProblems() {
   const res = await fetch(`${BASE}/api/problems`);
@@ -127,7 +131,10 @@ async function main() {
   if (failCount === 0) return fail("buggy starter code did not fail any tests");
 
   // Fix the code, re-run — should be all green
-  const set = await setMonaco(page, FIXED_BATCH, "WebhookBatcher");
+  // Multi-file: open the file that holds the bug before editing it.
+  await page.getByRole("button", { name: /batcher\.py/ }).click();
+  await page.waitForTimeout(400);
+  const set = await setMonaco(page, FIXED_BATCH, "class WebhookBatcher");
   if (!set) return fail("could not set Monaco value");
   log("✓ applied the fix");
   await page.getByRole("button", { name: /Run tests/i }).click();
