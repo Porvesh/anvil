@@ -1,0 +1,66 @@
+// Anvil data model (spec §15).
+//
+// Local dev runs on SQLite for zero setup. To move to hosted Postgres for prod,
+// change `provider` to "postgresql" and set DATABASE_URL to the connection string,
+// then re-run `prisma migrate`. Enum-like columns are plain strings and structured
+// blobs are `Json` (stored as TEXT on SQLite, jsonb on Postgres) so the schema is
+// portable across both engines without churn.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// A single practice problem in the shared bank. Debug and Review are two modes of
+/// one engine, so they share this table; mode-specific content lives in typed Json
+/// columns (see lib/types.ts for the shapes).
+model Problem {
+  id         String @id @default(cuid())
+  type       String // ProblemType: "debug" | "review" | "design"
+  language   String @default("python")
+  difficulty String // Difficulty: "easy" | "medium" | "hard"
+
+  title  String // short headline shown in the bank + solve header
+  prompt String // the symptom (debug), PR description (review), or design ask
+
+  jdContext String? // nullable; the JD this problem was tailored from
+
+  // --- mode-specific content ---
+  starterCode String? // debug: the buggy code the user edits
+  diff        Json? // review: structured unified-diff hunks (see DiffHunk[])
+  prMeta      Json? // review: PR dressing {number, branch, additions, deletions, files, aiGenerated}
+  testSuite   Json? // debug: { setup, cases: TestCase[] } — runs in Pyodide
+  rubric      Json? // design only: rubric dimensions
+
+  // --- ground truth: the seeded answer key (spec §2) ---
+  answerKey Json // AnswerKeyIssue[]: {id, lineStart, lineEnd, severity, failure, explanation, keywords}
+
+  qualityScore Float? // curation/pruning signal from generation self-check
+  source       String @default("authored") // "authored" | "generated"
+
+  createdAt DateTime  @default(now())
+  attempts  Attempt[]
+}
+
+/// One user's attempt at a problem, including run history, grade, and the Socratic
+/// transcript. Anonymous sessions are keyed by a client-generated sessionId.
+model Attempt {
+  id        String  @id @default(cuid())
+  problemId String
+  problem   Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  sessionId String
+
+  submission Json // debug: { code }; review: ReviewComment[] {line, body}
+  runHistory Json? // debug: RunRecord[] {passed, failed, output, at}
+  grade      Json? // Grade: {score, caught, missed, falsePositives, dimensionScores}
+  transcript Json? // ChatMessage[] from the Socratic follow-up
+
+  createdAt DateTime @default(now())
+
+  @@index([sessionId])
+  @@index([problemId])
+}
