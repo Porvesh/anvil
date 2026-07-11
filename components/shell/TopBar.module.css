@@ -1,0 +1,50 @@
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  height: 56px;
+  padding: 0 22px;
+  border-bottom: 1px solid var(--edge-soft);
+  background: rgba(20, 22, 26, 0.85);
+  backdrop-filter: blur(8px);
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.brand b {
+  font-family: var(--disp);
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: -0.01em;
+}
+.tag {
+  color: var(--steel-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  border: 1px solid var(--edge);
+  padding: 1px 6px;
+  border-radius: 20px;
+  letter-spacing: 0.04em;
+}
+.grow {
+  flex: 1;
+}
+.nav {
+  display: flex;
+  gap: 4px;
+}
+.nav a {
+  color: var(--steel);
+  padding: 7px 12px;
+  border-radius: 8px;
+  font-size: 13.5px;
+}
+.nav a:hover {
+  background: var(--slab2);
+  color: var(--parchment);
+}
