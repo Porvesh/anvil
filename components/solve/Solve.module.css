@@ -1,0 +1,90 @@
+.solve {
+  height: calc(100vh - 56px);
+  display: flex;
+  flex-direction: column;
+}
+.subbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 20px;
+  border-bottom: 1px solid var(--edge-soft);
+  background: var(--slab);
+}
+.crumb {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--steel-dim);
+}
+.crumb b {
+  color: var(--parchment-dim);
+  font-weight: 500;
+}
+.title {
+  font-family: var(--disp);
+  font-weight: 600;
+  font-size: 15px;
+}
+.timer {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--spark);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--spark);
+  box-shadow: 0 0 8px var(--spark);
+}
+.grow {
+  flex: 1;
+}
+.submit {
+  background: var(--blue);
+  color: #0a0c0f;
+  font-weight: 600;
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-size: 13.5px;
+}
+.submit:hover {
+  background: #6fb3ee;
+}
+.submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.hintbtn {
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  padding: 8px 13px;
+  font-size: 13px;
+  color: var(--parchment-dim);
+  background: var(--iron);
+}
+.hintbtn:hover {
+  border-color: var(--steel-dim);
+}
+
+.stage {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  min-height: 0;
+}
+.center {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--edge-soft);
+}
+
+@media (max-width: 900px) {
+  .stage {
+    grid-template-columns: 1fr;
+  }
+}

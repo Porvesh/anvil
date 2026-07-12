@@ -1,0 +1,229 @@
+.wrap {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+.hero {
+  padding: 64px 0 30px;
+}
+.hero h1 {
+  font-family: var(--disp);
+  font-weight: 700;
+  font-size: 52px;
+  line-height: 1.04;
+  letter-spacing: -0.025em;
+  margin: 14px 0 0;
+  max-width: 16ch;
+}
+.hero h1 em {
+  font-style: normal;
+  color: var(--spark);
+}
+.hero p {
+  color: var(--steel);
+  font-size: 18px;
+  max-width: 56ch;
+  margin: 20px 0 0;
+}
+
+.starter {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 20px;
+  margin-top: 40px;
+}
+.card {
+  background: var(--slab);
+  border: 1px solid var(--edge-soft);
+  border-radius: var(--r-lg);
+  padding: 22px;
+}
+.card h3 {
+  font-family: var(--disp);
+  font-weight: 600;
+  font-size: 16px;
+  margin: 0 0 4px;
+}
+.lead {
+  color: var(--steel);
+  font-size: 13.5px;
+  margin: 6px 0 0;
+}
+.jd textarea {
+  width: 100%;
+  min-height: 132px;
+  resize: vertical;
+  margin-top: 12px;
+  background: var(--iron);
+  border: 1px solid var(--edge);
+  border-radius: var(--r);
+  color: var(--parchment);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 13px;
+}
+.jd textarea:focus {
+  outline: none;
+  border-color: var(--blue-deep);
+}
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.seg button {
+  padding: 6px 12px;
+  font-size: 12.5px;
+  color: var(--steel);
+  font-family: var(--mono);
+}
+.seg button.on {
+  background: var(--blue);
+  color: #0b0d10;
+  font-weight: 600;
+}
+.cta {
+  margin-left: auto;
+}
+
+.side h3 {
+  font-family: var(--disp);
+  font-weight: 600;
+  font-size: 14px;
+  margin: 0 0 10px;
+  color: var(--parchment-dim);
+}
+.bankrow {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 12px;
+  border: 1px solid var(--edge-soft);
+  border-radius: 10px;
+  margin-bottom: 9px;
+  cursor: pointer;
+  transition: 0.15s;
+  color: inherit;
+}
+.bankrow:hover {
+  border-color: var(--steel-dim);
+  background: var(--slab2);
+}
+.bankrow .t {
+  flex: 1;
+  font-size: 13.5px;
+}
+.bankrow .diff {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--steel-dim);
+  text-transform: uppercase;
+}
+
+.cats {
+  margin: 46px 0 70px;
+}
+.catLead {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.catLead h2 {
+  font-family: var(--disp);
+  font-weight: 600;
+  font-size: 20px;
+  margin: 0;
+}
+.catgrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.cat {
+  background: var(--slab);
+  border: 1px solid var(--edge-soft);
+  border-radius: var(--r-lg);
+  padding: 22px;
+  cursor: pointer;
+  transition: 0.16s;
+  position: relative;
+  overflow: hidden;
+  color: inherit;
+  display: block;
+}
+.cat:hover {
+  transform: translateY(-3px);
+  border-color: var(--steel-dim);
+}
+.cat .ic {
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 16px;
+}
+.cat h3 {
+  font-family: var(--disp);
+  font-weight: 600;
+  font-size: 18px;
+  margin: 0 0 6px;
+}
+.cat p {
+  color: var(--steel);
+  font-size: 13.5px;
+  margin: 0;
+  min-height: 54px;
+}
+.cat .go {
+  margin-top: 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--parchment-dim);
+}
+.dbg .ic {
+  background: rgba(255, 122, 60, 0.12);
+  color: var(--spark);
+}
+.rev .ic {
+  background: rgba(90, 166, 230, 0.12);
+  color: var(--blue);
+}
+.sys .ic {
+  background: rgba(87, 199, 138, 0.12);
+  color: var(--green);
+}
+.badge {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--steel-dim);
+  border: 1px solid var(--edge);
+  border-radius: 20px;
+  padding: 2px 8px;
+}
+
+@media (max-width: 900px) {
+  .starter {
+    grid-template-columns: 1fr;
+  }
+  .catgrid {
+    grid-template-columns: 1fr;
+  }
+  .hero h1 {
+    font-size: 38px;
+  }
+}
