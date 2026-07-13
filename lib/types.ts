@@ -236,6 +236,20 @@ export interface FalsePositive {
   note?: string;
 }
 
+/** One component of the score, so the results screen can show *how* the
+ *  number was arrived at instead of a prose 'formula' paragraph. Sum of
+ *  `earned` equals the overall `score`. Grader is the source of truth. */
+export interface ScoreLine {
+  /** Short label, e.g. 'Tests pass', 'Approach quality', 'Issues caught'. */
+  label: string;
+  /** Points earned on this component (already weighted). */
+  earned: number;
+  /** Points available on this component. Sum of `max` across lines is 100. */
+  max: number;
+  /** Optional detail rendered next to the number (e.g. '2/3 issues'). */
+  detail?: string;
+}
+
 export interface Grade {
   /** 0–100 overall score. */
   score: number;
@@ -244,6 +258,8 @@ export interface Grade {
   summary: string;
   outcomes: IssueOutcome[];
   falsePositives: FalsePositive[];
+  /** Component-by-component score breakdown, shown on the results screen. */
+  breakdown: ScoreLine[];
   /** Debug only: did the objective test suite pass on the final submission. */
   testsPassed?: boolean;
   /** Design only (phase 2): per-dimension scores. */
