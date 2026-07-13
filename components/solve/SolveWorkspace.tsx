@@ -220,11 +220,6 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
     [chat, problem, isDebug, isReview, isDesign, code, runResult, streamInterviewer],
   );
 
-  const askHint = useCallback(() => {
-    if (aiBusy) return;
-    onInterviewerSend("Give me a nudge — not the answer.");
-  }, [aiBusy, onInterviewerSend]);
-
   const canSubmit = useMemo(() => {
     if (submitting) return false;
     if (isReview) return comments.length > 0;
@@ -260,19 +255,18 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
                 Back to results
               </button>
             ) : (
-              <>
-                <button className={shell.hintbtn} onClick={askHint} disabled={aiBusy}>
-                  Ask for a hint
-                </button>
-                <button
-                  className={shell.submit}
-                  onClick={submit}
-                  disabled={!canSubmit}
-                  title={isReview && comments.length === 0 ? "Leave at least one comment first" : undefined}
-                >
-                  {submitting ? "Grading…" : submitLabel}
-                </button>
-              </>
+              // No top-bar hint button: the interviewer panel already has
+              // quick-suggestion chips ('Give me a nudge — not the answer')
+              // that do the exact same thing, plus a free-form textarea.
+              // One primary action in the top bar keeps focus on Submit.
+              <button
+                className={shell.submit}
+                onClick={submit}
+                disabled={!canSubmit}
+                title={isReview && comments.length === 0 ? "Leave at least one comment first" : undefined}
+              >
+                {submitting ? "Grading…" : submitLabel}
+              </button>
             )}
           </>
         )}
