@@ -14,6 +14,19 @@ export interface ChatTurn {
   content: string;
 }
 
+/**
+ * The Messages API requires `messages[0]` to be a user turn. Our transcripts
+ * often start with an interviewer (assistant) greeting/probe, so prepend a
+ * synthetic user kickoff when the first turn isn't already a user turn. This
+ * preserves the assistant history (for continuity) while satisfying the API.
+ */
+export function ensureUserFirst(turns: ChatTurn[], kickoff: string): ChatTurn[] {
+  if (turns.length === 0 || turns[0].role !== "user") {
+    return [{ role: "user", content: kickoff }, ...turns];
+  }
+  return turns;
+}
+
 type SystemPrefix = { type: "text"; text: string; cache_control: { type: "ephemeral" } }[];
 
 export function sseFromMessages(

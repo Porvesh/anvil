@@ -59,10 +59,18 @@ export function matchReviewComments(
   const missed: AnswerKeyIssue[] = [];
 
   for (const issue of answerKey) {
-    // Candidate comments anchored within this issue's range, nearest first.
+    // A comment counts as anchored to this issue if it lands ON the buggy line
+    // range (exact — the user clearly flagged it), OR within ±tolerance AND its
+    // text overlaps the issue's keywords. The keyword gate on adjacency prevents
+    // an unrelated comment on a neighbouring line from being miscredited as a
+    // catch (spec §17 — avoiding frustrating false "you caught it" calls).
     const candidates = comments
       .map((comment, idx) => ({ comment, idx }))
-      .filter(({ comment, idx }) => !usedComments.has(idx) && withinIssue(comment.line, issue))
+      .filter(({ comment, idx }) => {
+        if (usedComments.has(idx)) return false;
+        if (withinIssue(comment.line, issue, 0)) return true;
+        return withinIssue(comment.line, issue) && hasKeywordHit(comment.body, issue.keywords);
+      })
       .sort((a, b) => distanceToIssue(a.comment.line, issue) - distanceToIssue(b.comment.line, issue));
 
     if (candidates.length === 0) {
