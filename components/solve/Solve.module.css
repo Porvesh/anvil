@@ -25,21 +25,6 @@
   font-weight: 600;
   font-size: 15px;
 }
-.timer {
-  font-family: var(--mono);
-  font-size: 13px;
-  color: var(--spark);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--spark);
-  box-shadow: 0 0 8px var(--spark);
-}
 .grow {
   flex: 1;
 }
