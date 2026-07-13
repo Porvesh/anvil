@@ -54,6 +54,15 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
 
+  // Live generation is only meaningful with a real JD + a type that has an
+  // executable oracle (debug/review). Without a JD there's nothing to tailor
+  // to; with type=design there's no oracle to self-check against. In both
+  // cases we route to a bank pick, and the button label reflects that — no
+  // more silently doing a $0.15 Sonnet call for one click and an instant DB
+  // read for another with the same 'Generate a problem' verb.
+  const jdTrimmed = jd.trim();
+  const canGenerate = type !== "any" && type !== "design" && jdTrimmed.length >= 40;
+
   /**
    * Generate a NEW problem tailored to the JD (design falls back to bank
    * selection — no live design generation yet). This actually calls the model
@@ -62,8 +71,9 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
   async function generate() {
     setGenError(null);
     // Design has no executable oracle → serve a matching bank problem instead.
-    if (type === "design") {
-      const target = problems.find((p) => p.type === "design") ?? problems[0];
+    if (type === "design" || type === "any" || !jdTrimmed) {
+      const pool = type === "any" ? problems : problems.filter((p) => p.type === type);
+      const target = pool[0] ?? problems[0];
       if (target) router.push(`/solve/${target.id}`);
       return;
     }
@@ -106,9 +116,8 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
           Drill the hard part. <em>Not</em> inverted binary trees.
         </h1>
         <p>
-          Anvil generates realistic problems in the areas modern interviews and real jobs turn on — reading unfamiliar
-          code under pressure, catching the bug in a plausible AI-written PR, and reasoning through a system design out
-          loud.
+          Debug real code. Review a plausible AI-written PR. Reason through a system design out loud.{" "}
+          <b>The AI plants the flaws, so the grader holds the answer key</b> — grading is a match, not a vibe.
         </p>
       </section>
 
@@ -135,12 +144,34 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
               ))}
             </div>
             <button className={`btn-primary ${styles.cta}`} onClick={generate} disabled={generating}>
-              {generating ? "Generating…" : type === "design" ? "Open a design problem →" : "Generate a problem →"}
+              {generating
+                ? "Generating…"
+                : canGenerate
+                  ? "Generate a tailored problem →"
+                  : type === "design"
+                    ? "Open a design problem →"
+                    : jdTrimmed.length < 40
+                      ? "Pick from the bank →"
+                      : "Pick from the bank →"}
             </button>
           </div>
           {generating && (
             <p className={styles.genNote}>
               Writing a fresh {type === "any" ? "" : type + " "}problem tailored to your JD, then executing it to verify the bug is real — this takes a minute or two.
+            </p>
+          )}
+          {!generating && !canGenerate && type !== "design" && (
+            <p className={styles.genNote}>
+              {type === "any"
+                ? "Pick debug or review + paste a JD to generate a fresh, tailored problem. Otherwise this opens a matching problem from the bank."
+                : jdTrimmed.length < 40
+                  ? "Paste a job description (a few lines is enough) to generate a fresh problem tailored to it. Otherwise this opens one from the bank."
+                  : null}
+            </p>
+          )}
+          {!generating && type === "design" && (
+            <p className={styles.genNote}>
+              System design problems are curated, not generated on-demand — there's no executable oracle to self-check against yet.
             </p>
           )}
           {genError && <p className={styles.genError}>{genError}</p>}
