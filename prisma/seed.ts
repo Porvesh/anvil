@@ -1,11 +1,13 @@
 /**
- * v0 seed bank — hand-authored problems (spec §16, "v0: 5 hand-authored debug
- * problems, skip generation"). Each has a real answer key and, for debug, a
- * Pyodide-runnable test suite that FAILS on the seeded bug and PASSES on the fix.
+ * Hand-authored seed bank (spec §16). These are interview-grade problems, not
+ * toys: realistic module-style code (classes, injected dependencies, docstrings),
+ * 1–3 seeded flaws each, and test suites that jointly force ALL flaws to be
+ * fixed — a partial fix still fails at least one test.
  *
- * Line numbers in every answerKey are 1-based against the `starterCode` (debug)
- * or the new-file `lineNo` of the diff (review) — the coordinate system the
- * editor and diff viewer render and the grader matches against.
+ * Line numbers in every answerKey are 1-based against `starterCode` (debug) or
+ * the new-file `lineNo` of the diff (review) — the coordinate system the editor
+ * and diff viewer render and the grader matches against. If you edit any code
+ * string here, re-verify the line numbers and re-run the oracle check.
  *
  * Run with: npm run seed
  */
@@ -27,189 +29,442 @@ interface SeedProblem {
 }
 
 // ---------------------------------------------------------------------------
-// DEBUG PROBLEMS
+// DEBUG PROBLEMS — runnable, realistic, symptom-first prompts
 // ---------------------------------------------------------------------------
 
-const debugBatch: SeedProblem = {
+const debugBatcher: SeedProblem = {
   type: "debug",
   difficulty: "medium",
-  title: "Webhook handler drops every 8th event",
+  title: "Webhook batcher silently drops the tail of every flush",
   prompt:
-    "process_events dispatches events in fixed-size batches, but the last batch never goes out — the final events silently vanish. Make the tests pass.",
-  starterCode: `def process_events(events, batch_size=8):
-    # dispatch events in fixed-size batches
-    sent = []
-    i = 0
-    while i < len(events) - batch_size:
-        chunk = events[i:i + batch_size]
-        dispatch(chunk)
-        sent.extend(chunk)
-        i += batch_size
-    return sent`,
-  testSuite: {
-    setup: `_dispatched = []
-def dispatch(chunk):
-    _dispatched.extend(list(chunk))`,
-    cases: [
-      { name: "test_empty_input", body: `assert process_events([], 8) == []` },
-      { name: "test_exact_multiple", body: `assert process_events(list(range(16)), 8) == list(range(16))` },
-      { name: "test_partial_last_batch", body: `assert process_events(list(range(20)), 8) == list(range(20))` },
-    ],
-  },
-  answerKey: [
-    {
-      id: "off-by-one-bound",
-      lineStart: 5,
-      lineEnd: 5,
-      severity: "major",
-      failure: "The loop stops a full batch early, so the final window (and any exact final batch) is never dispatched.",
-      explanation:
-        "`while i < len(events) - batch_size` exits before the last window. It should be `while i < len(events)`, so the final slice — even a partial one — still dispatches.",
-      keywords: ["off by one", "boundary", "len(events)", "loop condition", "last batch", "partial", "- batch_size"],
-    },
-  ],
-};
+    "Support keeps hearing about missing webhook deliveries. Metrics show flush() reports fewer events sent than were queued — and when the queue holds exactly one batch worth, nothing goes out at all. No errors are logged. Find the root cause and make the suite green.",
+  starterCode: `MAX_BATCH = 8
 
-const debugMovingAvg: SeedProblem = {
-  type: "debug",
-  difficulty: "easy",
-  title: "Moving average returns wrong window count at the edges",
-  prompt:
-    "moving_average should return one average per full window of size k. It's returning extra, wrong values at the tail. Fix it.",
-  starterCode: `def moving_average(nums, k):
-    # average of each full window of size k
-    out = []
-    for i in range(len(nums)):
-        window = nums[i:i + k]
-        out.append(sum(window) / k)
-    return out`,
-  testSuite: {
-    cases: [
-      { name: "test_basic_windows", body: `assert moving_average([1, 2, 3, 4], 2) == [1.5, 2.5, 3.5]` },
-      { name: "test_window_count", body: `assert len(moving_average([1, 2, 3, 4, 5], 3)) == 3` },
-      { name: "test_single_window", body: `assert moving_average([2, 4], 2) == [3.0]` },
-    ],
-  },
-  answerKey: [
-    {
-      id: "tail-windows",
-      lineStart: 4,
-      lineEnd: 6,
-      severity: "major",
-      failure: "Iterating the full range produces short tail windows and divides them by k, yielding too many, incorrect averages.",
-      explanation:
-        "The loop should run `range(len(nums) - k + 1)` so only full windows are produced. As written it emits `len(nums)` outputs and averages truncated tail slices over the wrong denominator.",
-      keywords: ["range", "len(nums) - k", "tail", "window count", "off by one", "full window"],
-    },
-  ],
-};
+class WebhookBatcher:
+    """Collects webhook events and posts them downstream in fixed-size batches."""
 
-const debugMutableDefault: SeedProblem = {
-  type: "debug",
-  difficulty: "medium",
-  title: "Basket accumulates items across unrelated calls",
-  prompt:
-    "add_item should start each caller with a fresh basket, but items leak between calls. Track down why.",
-  starterCode: `def add_item(item, basket=[]):
-    basket.append(item)
-    return basket`,
+    def __init__(self, transport, batch_size=MAX_BATCH):
+        self.transport = transport
+        self.batch_size = batch_size
+        self.pending = []
+        self.delivered = 0
+
+    def add(self, event):
+        if not isinstance(event, dict) or "id" not in event:
+            raise ValueError("event must be a dict with an 'id'")
+        self.pending.append(event)
+
+    def flush(self):
+        """Dispatch every pending event downstream. Returns how many were sent."""
+        sent = 0
+        i = 0
+        while i < len(self.pending) - self.batch_size:
+            chunk = self.pending[i:i + self.batch_size]
+            self.transport.send(chunk)
+            sent += len(chunk)
+            i += self.batch_size
+        self.pending = self.pending[i:]
+        self.delivered += sent
+        return sent`,
   testSuite: {
+    setup: `class FakeTransport:
+    def __init__(self):
+        self.batches = []
+    def send(self, chunk):
+        self.batches.append(list(chunk))
+
+def make(batch_size=8):
+    t = FakeTransport()
+    return WebhookBatcher(t, batch_size), t
+
+def ev(i):
+    return {"id": i}`,
     cases: [
-      { name: "test_first_call", body: `assert add_item("a") == ["a"]` },
+      { name: "test_flush_empty_queue", body: `b, t = make()\nassert b.flush() == 0\nassert t.batches == []` },
       {
-        name: "test_calls_are_independent",
-        body: `add_item("x")\nassert add_item("y") == ["y"]`,
+        name: "test_flush_exact_batch",
+        body: `b, t = make(4)\nfor i in range(4):\n    b.add(ev(i))\nassert b.flush() == 4, "an exact batch worth of events must be dispatched"\nassert b.pending == []`,
+      },
+      {
+        name: "test_flush_partial_tail",
+        body: `b, t = make(4)\nfor i in range(10):\n    b.add(ev(i))\nassert b.flush() == 10, "every queued event must go out, including the partial tail"\nassert b.pending == []\nassert sum(len(c) for c in t.batches) == 10`,
+      },
+      {
+        name: "test_add_validates_events",
+        body: `b, t = make()\ntry:\n    b.add("not-an-event")\n    assert False, "expected ValueError"\nexcept ValueError:\n    pass`,
       },
     ],
   },
   answerKey: [
     {
-      id: "mutable-default-arg",
-      lineStart: 1,
-      lineEnd: 1,
+      id: "flush-boundary",
+      lineStart: 21,
+      lineEnd: 21,
       severity: "major",
-      failure: "The default list is created once at definition time and shared across every call, so baskets accumulate.",
+      failure:
+        "The flush loop exits one full batch early, so the final window — including an exact final batch — is never dispatched and lingers in `pending`.",
       explanation:
-        "`basket=[]` is a classic mutable-default-argument bug. Use `basket=None` and create a new list inside: `if basket is None: basket = []`.",
-      keywords: ["mutable default", "default argument", "basket=[]", "shared", "none", "sentinel"],
+        "`while i < len(self.pending) - self.batch_size` stops before the last window. It must be `while i < len(self.pending)`: the slice `pending[i:i+batch_size]` already handles a short tail safely.",
+      keywords: ["off by one", "boundary", "loop condition", "- self.batch_size", "last batch", "tail", "len(self.pending)"],
     },
   ],
 };
 
-const debugBinarySearch: SeedProblem = {
+const debugTokenBucket: SeedProblem = {
+  type: "debug",
+  difficulty: "hard",
+  title: "Rate limiter lets huge bursts through after idle periods",
+  prompt:
+    "Two symptoms from prod: (1) after a quiet night, a single client burned through hundreds of requests in one burst even though capacity is 5; (2) a fresh bucket denies the very last token it should grant — clients report being limited one request early. The clock is injected, so everything is deterministic. Make the suite green.",
+  starterCode: `class TokenBucket:
+    """Allows \`rate\` requests/second with bursts up to \`capacity\`.
+
+    \`clock\` is injected for testability (returns seconds as a float).
+    """
+
+    def __init__(self, rate, capacity, clock):
+        self.rate = rate
+        self.capacity = capacity
+        self.clock = clock
+        self.tokens = capacity
+        self.last_refill = clock()
+
+    def _refill(self):
+        now = self.clock()
+        elapsed = now - self.last_refill
+        self.tokens = self.tokens + elapsed * self.rate
+        self.last_refill = now
+
+    def allow(self):
+        """Consume one token if available."""
+        self._refill()
+        if self.tokens > 1:
+            self.tokens -= 1
+            return True
+        return False`,
+  testSuite: {
+    setup: `def make(rate=1, capacity=5):
+    t = {"now": 0.0}
+    def clock():
+        return t["now"]
+    def advance(sec):
+        t["now"] += sec
+    return TokenBucket(rate, capacity, clock), advance`,
+    cases: [
+      {
+        name: "test_full_burst_at_start",
+        body: `b, advance = make(rate=1, capacity=5)\ngrants = sum(1 for _ in range(6) if b.allow())\nassert grants == 5, f"a fresh bucket must grant exactly its capacity, granted {grants}"`,
+      },
+      {
+        name: "test_last_token_is_usable",
+        body: `b, advance = make(rate=1, capacity=1)\nassert b.allow() is True, "the last remaining token must be grantable"\nassert b.allow() is False`,
+      },
+      {
+        name: "test_refill_over_time",
+        body: `b, advance = make(rate=1, capacity=1)\nb.allow()\nassert b.allow() is False\nadvance(1.0)\nassert b.allow() is True, "one second at rate=1 should refill one token"`,
+      },
+      {
+        name: "test_idle_never_exceeds_capacity",
+        body: `b, advance = make(rate=1, capacity=5)\nfor _ in range(6):\n    b.allow()\nadvance(3600.0)\ngrants = sum(1 for _ in range(20) if b.allow())\nassert grants == 5, f"after an hour idle the burst must still cap at capacity=5, granted {grants}"`,
+      },
+    ],
+  },
+  answerKey: [
+    {
+      id: "refill-uncapped",
+      lineStart: 17,
+      lineEnd: 17,
+      severity: "critical",
+      failure:
+        "Refill accumulates without capping at capacity, so after an idle period the bucket holds far more than `capacity` tokens and a client can burst way past the limit.",
+      explanation:
+        "`self.tokens = self.tokens + elapsed * self.rate` must clamp: `min(self.capacity, ...)`. The whole point of the bucket is that idle time can never bank more than one full burst.",
+      keywords: ["cap", "capacity", "min(", "clamp", "unbounded", "idle", "burst", "exceeds"],
+    },
+    {
+      id: "allow-off-by-one",
+      lineStart: 23,
+      lineEnd: 23,
+      severity: "major",
+      failure: "`if self.tokens > 1` refuses to spend the final token — every bucket effectively has capacity−1.",
+      explanation: "Spending one token requires `tokens >= 1`, not `> 1`. The strict comparison strands the last token forever.",
+      keywords: [">=", "off by one", "last token", "strict", "comparison", "tokens > 1"],
+    },
+  ],
+};
+
+const debugLruCache: SeedProblem = {
   type: "debug",
   difficulty: "medium",
-  title: "Binary search misses elements at the boundary",
+  title: "LRU cache evicts the entry you just used",
   prompt:
-    "binary_search works for most inputs but returns -1 for some values that are actually present. Find the boundary bug.",
-  starterCode: `def binary_search(arr, target):
-    lo, hi = 0, len(arr) - 1
-    while lo < hi:
-        mid = (lo + hi) // 2
-        if arr[mid] == target:
-            return mid
-        elif arr[mid] < target:
-            lo = mid + 1
-        else:
-            hi = mid - 1
-    return -1`,
+    "Cache hit-rate collapsed after a refactor. Traces show hot keys being evicted moments after they were read, while entries nobody has touched in hours stay resident. Two distinct things are wrong with the recency bookkeeping. Make the suite green.",
+  starterCode: `class LRUCache:
+    """Fixed-capacity cache that evicts the least-recently-used entry."""
+
+    def __init__(self, capacity):
+        self.capacity = capacity
+        self.store = {}
+        self.order = []  # least-recently-used first
+
+    def get(self, key):
+        if key not in self.store:
+            return None
+        return self.store[key]
+
+    def put(self, key, value):
+        if key in self.store:
+            self.store[key] = value
+            self.order.remove(key)
+            self.order.append(key)
+            return
+        if len(self.store) >= self.capacity:
+            evicted = self.order.pop()
+            del self.store[evicted]
+        self.store[key] = value
+        self.order.append(key)`,
   testSuite: {
     cases: [
-      { name: "test_found_middle", body: `assert binary_search([1, 3, 5, 7, 9], 5) == 2` },
-      { name: "test_found_last", body: `assert binary_search([1, 3, 5, 7, 9], 9) == 4` },
-      { name: "test_missing", body: `assert binary_search([1, 3, 5], 4) == -1` },
+      {
+        name: "test_basic_roundtrip",
+        body: `c = LRUCache(2)\nc.put("a", 1)\nassert c.get("a") == 1\nassert c.get("missing") is None`,
+      },
+      {
+        name: "test_evicts_least_recent",
+        body: `c = LRUCache(2)\nc.put("a", 1)\nc.put("b", 2)\nc.put("c", 3)\nassert c.get("a") is None, "oldest entry (a) should be evicted"\nassert c.get("b") == 2, "newer entry (b) must survive"\nassert c.get("c") == 3`,
+      },
+      {
+        name: "test_get_refreshes_recency",
+        body: `c = LRUCache(2)\nc.put("a", 1)\nc.put("b", 2)\nc.get("a")\nc.put("c", 3)\nassert c.get("a") == 1, "a was just read - it must not be the eviction victim"\nassert c.get("b") is None, "b was the least recently used"`,
+      },
+      {
+        name: "test_update_refreshes_recency",
+        body: `c = LRUCache(2)\nc.put("a", 1)\nc.put("b", 2)\nc.put("a", 10)\nc.put("c", 3)\nassert c.get("a") == 10\nassert c.get("b") is None`,
+      },
     ],
   },
   answerKey: [
     {
-      id: "loop-condition",
-      lineStart: 3,
-      lineEnd: 3,
+      id: "get-no-refresh",
+      lineStart: 12,
+      lineEnd: 12,
       severity: "major",
-      failure: "`while lo < hi` skips the final single-element window, so a target sitting at lo == hi is never checked.",
+      failure: "get() returns the value without refreshing recency, so hot keys look stale and get evicted while cold keys survive.",
       explanation:
-        "With an inclusive `hi = len(arr) - 1`, the loop must continue while `lo <= hi`. As written, once the range narrows to one element the loop exits and returns -1.",
-      keywords: ["lo < hi", "lo <= hi", "loop condition", "boundary", "off by one", "single element"],
+        "An LRU read is a *use*: get() must move the key to the most-recent end (`order.remove(key); order.append(key)`) before returning. Without it the order list only reflects writes.",
+      keywords: ["refresh", "recency", "move", "order", "get", "touch", "most recent"],
+    },
+    {
+      id: "evict-wrong-end",
+      lineStart: 21,
+      lineEnd: 21,
+      severity: "major",
+      failure: "`self.order.pop()` removes the MOST-recently-used key — eviction targets exactly the wrong end of the list.",
+      explanation:
+        "`order` is least-recent-first, so eviction must `pop(0)`. A bare `pop()` takes the newest entry, which is why fresh keys vanish immediately.",
+      keywords: ["pop(0)", "wrong end", "most recent", "pop()", "evict", "oldest", "front"],
     },
   ],
 };
 
-const debugWordCounts: SeedProblem = {
+const debugInvoice: SeedProblem = {
   type: "debug",
   difficulty: "easy",
-  title: "Word counter treats 'The' and 'the' as different words",
+  title: "Invoice totals ignore line-item quantities",
   prompt:
-    "word_counts should be case-insensitive, but capitalized words are counted separately. Fix the normalization.",
-  starterCode: `def word_counts(text):
-    counts = {}
-    for word in text.split():
-        counts[word] = counts.get(word, 0) + 1
-    return counts`,
+    "Finance flagged that multi-quantity orders are being under-billed: an order of 3 × $2.50 invoices at $2.50. Single-item orders and the discount math look right in spot checks. All amounts are integer cents. Make the suite green.",
+  starterCode: `def invoice_total(items, discount_pct=0):
+    """Total (in cents) for a list of {'price': cents, 'qty': int} line items,
+    with an optional whole-order percentage discount applied at the end."""
+    subtotal = 0
+    for item in items:
+        subtotal += item["price"]
+    discounted = subtotal - subtotal * discount_pct / 100
+    return round(discounted)`,
   testSuite: {
     cases: [
-      { name: "test_case_insensitive", body: `assert word_counts("The the THE") == {"the": 3}` },
-      { name: "test_mixed", body: `assert word_counts("Cat cat Dog") == {"cat": 2, "dog": 1}` },
+      { name: "test_empty_invoice", body: `assert invoice_total([]) == 0` },
+      {
+        name: "test_quantities_multiply",
+        body: `assert invoice_total([{"price": 250, "qty": 3}]) == 750, "3 x 250c must bill 750c"`,
+      },
+      {
+        name: "test_discount_applies_to_full_subtotal",
+        body: `assert invoice_total([{"price": 1000, "qty": 2}], discount_pct=10) == 1800`,
+      },
+      {
+        name: "test_mixed_lines",
+        body: `items = [{"price": 199, "qty": 2}, {"price": 500, "qty": 1}]\nassert invoice_total(items) == 898`,
+      },
     ],
   },
   answerKey: [
     {
-      id: "no-case-normalization",
-      lineStart: 4,
-      lineEnd: 4,
-      severity: "minor",
-      failure: "Words are counted as-is, so different casings become separate keys.",
+      id: "qty-ignored",
+      lineStart: 6,
+      lineEnd: 6,
+      severity: "major",
+      failure: "The subtotal adds each line's unit price once, ignoring `qty` — every multi-quantity line is under-billed.",
+      explanation: "The accumulation must be `subtotal += item[\"price\"] * item[\"qty\"]`. As written, quantity is read from the schema but never used.",
+      keywords: ["qty", "quantity", "multiply", "* item", "unit price", "ignores"],
+    },
+  ],
+};
+
+const debugRetry: SeedProblem = {
+  type: "debug",
+  difficulty: "medium",
+  title: "Retry helper swallows real bugs and returns None",
+  prompt:
+    "Two incidents traced back to this helper: a typo (`ValueError`) in a caller got retried three times before vanishing — the on-call saw nothing; and when a downstream stayed hard-down, callers received `None` instead of an exception and happily wrote `None` into the database. The docstring says exactly what it should do. Make the suite green.",
+  starterCode: `def with_retry(fn, attempts=3, retry_on=(ConnectionError, TimeoutError)):
+    """Call \`fn\`, retrying transient failures up to \`attempts\` times.
+
+    Only exceptions in \`retry_on\` are transient; anything else is a bug in the
+    caller and must propagate immediately. If every attempt fails, the last
+    transient error must surface — never a silent None.
+    """
+    last_exc = None
+    for _ in range(attempts):
+        try:
+            return fn()
+        except Exception as exc:
+            last_exc = exc
+    return None`,
+  testSuite: {
+    setup: `def flaky(fail_times, exc_type=ConnectionError):
+    state = {"calls": 0}
+    def fn():
+        state["calls"] += 1
+        if state["calls"] <= fail_times:
+            raise exc_type("transient failure")
+        return "ok"
+    fn.state = state
+    return fn`,
+    cases: [
+      { name: "test_success_passthrough", body: `fn = flaky(0)\nassert with_retry(fn) == "ok"\nassert fn.state["calls"] == 1` },
+      {
+        name: "test_retries_transient_errors",
+        body: `fn = flaky(2)\nassert with_retry(fn) == "ok"\nassert fn.state["calls"] == 3, "two transient failures then success = 3 calls"`,
+      },
+      {
+        name: "test_programmer_errors_propagate_immediately",
+        body: `fn = flaky(5, ValueError)\ntry:\n    with_retry(fn)\n    assert False, "ValueError is not transient - it must propagate"\nexcept ValueError:\n    pass\nassert fn.state["calls"] == 1, f"a non-transient error was retried ({fn.state['calls']} calls)"`,
+      },
+      {
+        name: "test_exhausted_retries_raise",
+        body: `fn = flaky(99)\ntry:\n    with_retry(fn)\n    assert False, "exhausted retries must raise the last error, not return None"\nexcept ConnectionError:\n    pass\nassert fn.state["calls"] == 3`,
+      },
+    ],
+  },
+  answerKey: [
+    {
+      id: "broad-except",
+      lineStart: 12,
+      lineEnd: 12,
+      severity: "major",
+      failure: "`except Exception` retries every error type — programmer errors like ValueError get retried and hidden instead of propagating immediately.",
+      explanation: "The handler must catch only the transient classes: `except retry_on as exc:`. The `retry_on` parameter exists precisely for this and is currently ignored.",
+      keywords: ["except exception", "retry_on", "broad", "catch", "propagate", "transient", "valueerror"],
+    },
+    {
+      id: "silent-none",
+      lineStart: 14,
+      lineEnd: 14,
+      severity: "critical",
+      failure: "After exhausting attempts the helper returns None, so hard failures masquerade as a successful call returning None — corrupting callers' data.",
+      explanation: "Exhaustion must re-raise the captured error: `raise last_exc`. A retry wrapper may delay an error; it must never convert one into a value.",
+      keywords: ["return none", "raise", "last_exc", "swallow", "silent", "exhaust"],
+    },
+  ],
+};
+
+const debugPayments: SeedProblem = {
+  type: "debug",
+  difficulty: "hard",
+  title: "Payment processor double-charges on webhook replay",
+  prompt:
+    "A customer was charged twice for one order. The provider's docs say delivery is at-least-once: the same event WILL occasionally arrive twice, and a delivery attempt can also die mid-flight and be redelivered. There's a `processed` set in the code, so someone thought about this — but chargebacks say otherwise. There are two distinct flaws in how idempotency is handled. Make the suite green.",
+  starterCode: `class PaymentProcessor:
+    """Applies \`charge\` webhooks from the payment provider to the gateway.
+
+    Delivery is at-least-once: the same event may arrive multiple times
+    (replays, provider retries), and a delivery attempt can fail midway.
+    """
+
+    def __init__(self, gateway):
+        self.gateway = gateway
+        self.processed = set()
+
+    def handle(self, event):
+        eid = event["id"]
+        if event.get("type") != "charge":
+            return "ignored"
+        self.processed.add(eid)
+        result = self.gateway.charge(event["customer"], event["amount"])
+        return result`,
+  testSuite: {
+    setup: `class FakeGateway:
+    def __init__(self, fail_first=0):
+        self.charges = []
+        self.fail_remaining = fail_first
+    def charge(self, customer, amount):
+        if self.fail_remaining > 0:
+            self.fail_remaining -= 1
+            raise ConnectionError("gateway unavailable")
+        self.charges.append((customer, amount))
+        return "charged"
+
+def charge_event(eid, amount=1000):
+    return {"id": eid, "type": "charge", "customer": "cus_1", "amount": amount}`,
+    cases: [
+      {
+        name: "test_charges_once",
+        body: `gw = FakeGateway()\np = PaymentProcessor(gw)\nassert p.handle(charge_event("evt_1")) == "charged"\nassert len(gw.charges) == 1`,
+      },
+      {
+        name: "test_ignores_non_charge_events",
+        body: `gw = FakeGateway()\np = PaymentProcessor(gw)\nassert p.handle({"id": "evt_2", "type": "refund"}) == "ignored"\nassert gw.charges == []`,
+      },
+      {
+        name: "test_replay_is_idempotent",
+        body: `gw = FakeGateway()\np = PaymentProcessor(gw)\ne = charge_event("evt_3")\np.handle(e)\np.handle(e)\nassert len(gw.charges) == 1, f"replayed event charged {len(gw.charges)} times - customers get double-charged"`,
+      },
+      {
+        name: "test_failed_delivery_is_retryable",
+        body: `gw = FakeGateway(fail_first=1)\np = PaymentProcessor(gw)\ne = charge_event("evt_4")\ntry:\n    p.handle(e)\n    assert False, "the gateway error should propagate so the provider redelivers"\nexcept ConnectionError:\n    pass\nassert p.handle(e) == "charged", "a failed delivery must remain retryable - money was never moved"\nassert len(gw.charges) == 1`,
+      },
+    ],
+  },
+  answerKey: [
+    {
+      id: "no-replay-guard",
+      lineStart: 13,
+      lineEnd: 17,
+      severity: "critical",
+      failure: "`processed` is written but never READ — replays sail straight through to the gateway and the customer is charged once per delivery.",
       explanation:
-        "Normalize before counting: key on `word.lower()`. Without it, 'The', 'the', and 'THE' are three distinct dictionary keys.",
-      keywords: ["lower", "case", "normalize", "case-insensitive", "word.lower()"],
+        "handle() needs a guard before charging: `if eid in self.processed: return \"duplicate\"`. Recording processed IDs is worthless if nothing checks them.",
+      keywords: ["never checked", "duplicate", "replay", "idempotency", "in self.processed", "guard", "double charge"],
+    },
+    {
+      id: "mark-before-charge",
+      lineStart: 16,
+      lineEnd: 16,
+      severity: "major",
+      failure:
+        "The event is marked processed BEFORE the charge attempt — if the gateway call fails, the event is permanently 'processed' and the redelivery will be skipped: the customer is never charged at all.",
+      explanation:
+        "Mark idempotency state only after the side effect succeeds: charge first, then `processed.add(eid)`. Marking first turns any transient gateway failure into silently lost revenue.",
+      keywords: ["before", "order", "after success", "mark", "add(eid)", "failed charge", "lost"],
     },
   ],
 };
 
 // ---------------------------------------------------------------------------
-// REVIEW PROBLEMS (diff-centric, no editing)
+// REVIEW PROBLEMS — plausible AI-generated PRs with seeded flaws
 // ---------------------------------------------------------------------------
 
-/** Helper to build a context/add/del diff line. */
 const ctx = (lineNo: number, content: string): DiffHunk["lines"][number] => ({ kind: "context", lineNo, content });
 const add = (lineNo: number, content: string): DiffHunk["lines"][number] => ({ kind: "add", lineNo, content });
 const del = (content: string): DiffHunk["lines"][number] => ({ kind: "del", lineNo: null, content });
@@ -219,14 +474,18 @@ const reviewRetry: SeedProblem = {
   difficulty: "medium",
   title: "Add retry logic to payment webhook",
   prompt:
-    "Adds automatic retries when the downstream ledger service is unavailable, so we stop losing payment confirmations during brief outages. Retries on any exception with a short sleep between attempts.",
+    "We've been losing payment confirmations during brief ledger-service blips. This adds automatic retries around the ledger write so transient outages stop dropping money events. Tested locally by killing the ledger container mid-run — confirmations were delivered once it came back. Low-risk change, isolated to the handler.",
   prMeta: { number: 4192, branch: "feat/webhook-retries", additions: 6, deletions: 1, files: 1, aiGenerated: true },
   diff: [
     {
       file: "services/payments/webhook.py",
       lines: [
-        ctx(40, "def handle(event):"),
-        ctx(41, "    payload = verify(event)"),
+        ctx(36, "import time"),
+        ctx(37, ""),
+        ctx(38, "def handle(event):"),
+        ctx(39, '    """Apply a payment confirmation from the provider to our ledger."""'),
+        ctx(40, "    payload = verify(event)          # raises SignatureError on tampered events"),
+        ctx(41, '    log.info("webhook received", event_id=payload["id"])'),
         del("    ledger.record(payload)"),
         add(42, "    while True:"),
         add(43, "        try:"),
@@ -244,30 +503,29 @@ const reviewRetry: SeedProblem = {
       lineStart: 42,
       lineEnd: 42,
       severity: "major",
-      failure: "`while True` with no max-attempt cap blocks the worker forever if the ledger stays down.",
+      failure: "`while True` with no attempt cap or backoff blocks the worker forever during a sustained ledger outage — one bad event wedges the whole webhook queue.",
       explanation:
-        "Retries need a bounded attempt count plus backoff. An unbounded loop ties up the worker (and the webhook's own timeout) indefinitely during a sustained outage.",
-      keywords: ["while true", "unbounded", "max attempts", "retry forever", "cap", "backoff", "no limit"],
+        "Retries need a bounded attempt count and exponential backoff, then a dead-letter path. An unbounded tight loop also ignores the webhook's own delivery timeout — the provider will redeliver while we're still spinning.",
+      keywords: ["while true", "unbounded", "max attempts", "retry forever", "cap", "backoff", "no limit", "blocks"],
     },
     {
       id: "no-idempotency",
       lineStart: 44,
       lineEnd: 44,
       severity: "critical",
-      failure: "Re-calling ledger.record() after a partial success double-charges the customer — the retry has no idempotency key.",
+      failure: "Retrying `ledger.record()` with no idempotency key double-books the payment when the first write succeeded but its ack was lost.",
       explanation:
-        "If record() succeeds but the ack is lost, the retry records the payment again. The call needs a stable idempotency key so the ledger dedupes — this is the one that actually loses money.",
-      keywords: ["idempotency", "idempotent", "double charge", "duplicate", "dedupe", "exactly once", "at least once"],
+        "Success-then-lost-ack is the classic partial failure: the retry records the same payment again. The write needs a stable idempotency key (the event id) so the ledger dedupes. This is the flaw that actually loses money.",
+      keywords: ["idempotency", "idempotent", "double charge", "double-book", "duplicate", "dedupe", "exactly once", "at least once", "ack"],
     },
     {
       id: "broad-except",
       lineStart: 46,
       lineEnd: 46,
       severity: "minor",
-      failure: "`except Exception` swallows programming errors, not just transient outages.",
-      explanation:
-        "Catching bare Exception hides bugs (e.g. a KeyError in verify) and retries them pointlessly. Catch the specific transient/network error class instead.",
-      keywords: ["except exception", "broad except", "bare except", "swallow", "too broad", "specific exception"],
+      failure: "`except Exception` retries programming errors (a KeyError in the payload, a bug in record()) identically to outages — hiding real bugs in an infinite retry loop.",
+      explanation: "Catch the specific transient/network error class the ledger client raises. Everything else should propagate loudly.",
+      keywords: ["except exception", "broad except", "bare except", "swallow", "too broad", "specific exception", "keyerror"],
     },
   ],
 };
@@ -275,14 +533,16 @@ const reviewRetry: SeedProblem = {
 const reviewCache: SeedProblem = {
   type: "review",
   difficulty: "medium",
-  title: "Cache user lookups to cut DB load",
+  title: "Cache user lookups to cut database load",
   prompt:
-    "Adds an in-memory cache in front of get_user so repeated lookups don't hit the database. Keeps update_user writing straight through to the DB.",
+    "get_user is our hottest DB query (60% of read QPS) and users barely change. This memoizes lookups in-process — repeat reads are served from memory and writes keep going straight through to the DB, so there's no consistency risk. Saw a 40x latency win on the benchmark.",
   prMeta: { number: 5310, branch: "perf/user-cache", additions: 5, deletions: 1, files: 1, aiGenerated: true },
   diff: [
     {
       file: "services/users/cache.py",
       lines: [
+        ctx(8, "from services.users import db"),
+        ctx(9, ""),
         ctx(10, "_cache = {}"),
         ctx(11, ""),
         ctx(12, "def get_user(user_id):"),
@@ -295,6 +555,9 @@ const reviewCache: SeedProblem = {
         ctx(18, ""),
         ctx(19, "def update_user(user_id, data):"),
         ctx(20, "    db.save_user(user_id, data)"),
+        ctx(21, ""),
+        ctx(22, "def delete_user(user_id):"),
+        ctx(23, "    db.remove_user(user_id)"),
       ],
     },
   ],
@@ -302,38 +565,110 @@ const reviewCache: SeedProblem = {
     {
       id: "stale-cache",
       lineStart: 19,
-      lineEnd: 20,
-      severity: "major",
-      failure: "update_user writes to the DB but never invalidates _cache, so callers keep reading stale user data after an update.",
+      lineEnd: 23,
+      severity: "critical",
+      failure:
+        "update_user and delete_user write straight to the DB but never invalidate `_cache` — readers keep getting the old user (or a deleted one) indefinitely. The PR claim of 'no consistency risk' is exactly backwards.",
       explanation:
-        "Any write path must evict or refresh the cache entry (`_cache.pop(user_id, None)` after save). Without it, the cache serves the pre-update value indefinitely.",
-      keywords: ["invalidate", "stale", "cache invalidation", "evict", "update", "pop", "refresh"],
+        "Every write path must evict the entry (`_cache.pop(user_id, None)`). Deleted users continuing to resolve is also a security problem, not just staleness.",
+      keywords: ["invalidate", "stale", "cache invalidation", "evict", "update", "delete", "pop", "consistency"],
     },
     {
       id: "unbounded-cache",
       lineStart: 16,
       lineEnd: 16,
       severity: "major",
-      failure: "_cache grows without bound — no eviction, TTL, or max size — a memory leak that eventually exhausts the process.",
+      failure: "`_cache` grows forever — no max size, TTL, or eviction. Every user ever read stays resident until the process OOMs.",
+      explanation: "An in-process cache needs a bound: LRU with a max size or a TTL (e.g. functools.lru_cache or a bounded dict). Unbounded growth is a slow-motion memory leak.",
+      keywords: ["unbounded", "memory leak", "eviction", "ttl", "max size", "lru", "grows", "bounded", "oom"],
+    },
+    {
+      id: "shared-mutable",
+      lineStart: 14,
+      lineEnd: 14,
+      severity: "minor",
+      failure: "The cache hands every caller the same mutable dict — one caller mutating its 'copy' silently corrupts what every future caller reads.",
+      explanation: "Return a copy (or an immutable view) from the cache, or document the aliasing loudly. Shared mutable cache entries are a classic action-at-a-distance bug.",
+      keywords: ["mutable", "copy", "reference", "mutation", "aliasing", "shared object", "deepcopy"],
+    },
+  ],
+};
+
+const reviewPagination: SeedProblem = {
+  type: "review",
+  difficulty: "hard",
+  title: "Add pagination to the orders endpoint",
+  prompt:
+    "The orders list endpoint currently returns a user's entire history in one response, which is timing out for power users with 10k+ orders. This adds standard limit/offset pagination plus a total count so the frontend can render page controls. Backwards compatible — page defaults keep old clients working.",
+  prMeta: { number: 5817, branch: "feat/orders-pagination", additions: 7, deletions: 2, files: 1, aiGenerated: true },
+  diff: [
+    {
+      file: "api/orders.py",
+      lines: [
+        ctx(12, "PER_PAGE_DEFAULT = 50"),
+        ctx(13, ""),
+        ctx(14, "def list_orders(user_id, page=1, per_page=PER_PAGE_DEFAULT):"),
+        ctx(15, '    """Return one page of a user\'s orders, newest first."""'),
+        del('    rows = db.query("SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC", user_id)'),
+        del('    return {"orders": rows}'),
+        add(16, "    offset = page * per_page"),
+        add(17, "    rows = db.execute("),
+        add(18, '        f"SELECT * FROM orders WHERE user_id = {user_id} "'),
+        add(19, '        f"ORDER BY created_at DESC LIMIT {per_page} OFFSET {offset}"'),
+        add(20, "    )"),
+        add(21, '    total = len(db.execute(f"SELECT * FROM orders WHERE user_id = {user_id}"))'),
+        add(22, '    return {"orders": rows, "total": total, "page": page}'),
+      ],
+    },
+  ],
+  answerKey: [
+    {
+      id: "sql-injection",
+      lineStart: 18,
+      lineEnd: 19,
+      severity: "critical",
+      failure:
+        "user_id is interpolated into the SQL with an f-string — a crafted user_id walks straight into the query. The deleted code used bind parameters; this PR silently removed them.",
       explanation:
-        "A process-lifetime dict keyed by user_id will accumulate every user ever looked up. Needs an LRU/size cap or TTL (e.g. functools.lru_cache or an explicit bounded cache).",
-      keywords: ["unbounded", "memory leak", "eviction", "ttl", "max size", "lru", "grows", "bounded"],
+        "Use parameterized queries (`?` placeholders / bind params) for every value, including LIMIT/OFFSET. The regression is easy to miss because the diff *looks* like a mechanical rewrite.",
+      keywords: ["injection", "sql injection", "parameterized", "f-string", "bind", "placeholder", "sanitize", "escape"],
+    },
+    {
+      id: "offset-off-by-one",
+      lineStart: 16,
+      lineEnd: 16,
+      severity: "major",
+      failure: "`offset = page * per_page` with 1-based pages skips the first page entirely — page 1 starts at row 50 and the newest 50 orders are unreachable.",
+      explanation: "With 1-based page numbers the offset is `(page - 1) * per_page`. As written, no page value can ever return rows 0–49.",
+      keywords: ["off by one", "page - 1", "first page", "skips", "offset", "1-based"],
+    },
+    {
+      id: "count-loads-table",
+      lineStart: 21,
+      lineEnd: 21,
+      severity: "major",
+      failure:
+        "The total is computed by SELECTing every order row and len()-ing it in Python — the exact full-table scan this PR exists to eliminate, now on every page request.",
+      explanation: "Use `SELECT COUNT(*)` (and consider caching it). Fetching all rows for a count re-introduces the 10k-row timeout behind a feature that claims to fix it.",
+      keywords: ["count(*)", "select count", "loads every", "full table", "len(", "performance", "scan"],
     },
   ],
 };
 
 const ALL: SeedProblem[] = [
-  debugBatch,
-  debugMovingAvg,
-  debugMutableDefault,
-  debugBinarySearch,
-  debugWordCounts,
+  debugBatcher,
+  debugTokenBucket,
+  debugLruCache,
+  debugInvoice,
+  debugRetry,
+  debugPayments,
   reviewRetry,
   reviewCache,
+  reviewPagination,
 ];
 
 async function main() {
-  // Idempotent: clear previously-authored problems (cascades to their attempts).
+  // Idempotent: replace previously-authored problems (cascades to their attempts).
   await prisma.problem.deleteMany({ where: { source: "authored" } });
 
   for (const p of ALL) {

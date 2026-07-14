@@ -13,21 +13,40 @@ const fail = (msg) => {
   process.exitCode = 1;
 };
 
-const FIXED_BATCH = `def process_events(events, batch_size=8):
-    # dispatch events in fixed-size batches
-    sent = []
-    i = 0
-    while i < len(events):
-        chunk = events[i:i + batch_size]
-        dispatch(chunk)
-        sent.extend(chunk)
-        i += batch_size
-    return sent`;
+// The intended fix for the "Webhook batcher" seed problem (see prisma/seed.ts).
+const FIXED_BATCH = `MAX_BATCH = 8
+
+class WebhookBatcher:
+    """Collects webhook events and posts them downstream in fixed-size batches."""
+
+    def __init__(self, transport, batch_size=MAX_BATCH):
+        self.transport = transport
+        self.batch_size = batch_size
+        self.pending = []
+        self.delivered = 0
+
+    def add(self, event):
+        if not isinstance(event, dict) or "id" not in event:
+            raise ValueError("event must be a dict with an 'id'")
+        self.pending.append(event)
+
+    def flush(self):
+        """Dispatch every pending event downstream. Returns how many were sent."""
+        sent = 0
+        i = 0
+        while i < len(self.pending):
+            chunk = self.pending[i:i + self.batch_size]
+            self.transport.send(chunk)
+            sent += len(chunk)
+            i += self.batch_size
+        self.pending = self.pending[i:]
+        self.delivered += sent
+        return sent`;
 
 async function pickProblems() {
   const res = await fetch(`${BASE}/api/problems`);
   const { problems } = await res.json();
-  const debug = problems.find((p) => p.title.includes("Webhook handler")) || problems.find((p) => p.type === "debug");
+  const debug = problems.find((p) => p.title.includes("Webhook batcher")) || problems.find((p) => p.type === "debug");
   const review = problems.find((p) => p.title.startsWith("Add retry")) || problems.find((p) => p.type === "review");
   return { debug, review };
 }
@@ -37,7 +56,7 @@ async function setMonaco(page, fixed) {
     const m = window.monaco;
     if (!m) return false;
     const models = m.editor.getModels();
-    const target = models.find((mo) => mo.getValue().includes("process_events")) || models[0];
+    const target = models.find((mo) => mo.getValue().includes("WebhookBatcher")) || models[0];
     if (!target) return false;
     target.setValue(code);
     return true;
@@ -84,7 +103,7 @@ async function main() {
   await page.waitForFunction(
     () => {
       const el = [...document.querySelectorAll("*")].find((e) => /tests? passing/.test(e.textContent || "") && e.children.length === 0);
-      return el && /all green|3\/3|2\/2/.test(el.textContent || "");
+      return el && /all green/.test(el.textContent || "");
     },
     { timeout: 60000 },
   ).catch(() => {});
