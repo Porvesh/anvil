@@ -71,6 +71,9 @@ function renderAnswerKey(answerKey: AnswerKeyIssue[]): string {
 export async function judgeReview(
   problem: Problem,
   unmatched: ReviewComment[],
+  /** Ids of seeded issues the matcher scored as caught / missed — the headline
+   *  and summary MUST reflect this outcome, not just the unmatched comments. */
+  outcome: { caughtIds: string[]; missedIds: string[] },
 ): Promise<ReviewJudgment> {
   const diffText = (problem.diff ?? [])
     .flatMap((h) => h.lines.map((l) => `${l.lineNo ?? ""}\t${l.kind === "add" ? "+" : l.kind === "del" ? "-" : " "}${l.content}`))
@@ -95,6 +98,10 @@ export async function judgeReview(
     ? unmatched.map((c, idx) => `[${idx}] line ${c.line}: ${c.body}`).join("\n")
     : "(none)";
 
+  const byId = new Map(problem.answerKey.map((i) => [i.id, i]));
+  const describe = (ids: string[]) =>
+    ids.length ? ids.map((id) => `- ${byId.get(id)?.failure ?? id}`).join("\n") : "(none)";
+
   const result = await anthropic.messages.parse({
     model: MODELS.grading,
     max_tokens: MAX_TOKENS.grade,
@@ -103,12 +110,23 @@ export async function judgeReview(
       {
         role: "user",
         content: [
-          "The user's line comments that did NOT anchor to any seeded issue are below.",
+          "The deterministic matcher already scored this review. THE OUTCOME BELOW IS GROUND TRUTH —",
+          "your headline and summary must accurately reflect it (what was caught vs. missed). Do not",
+          "claim issues were caught if they appear under MISSED.",
+          "",
+          `SEEDED ISSUES CAUGHT (${outcome.caughtIds.length}/${problem.answerKey.length}):`,
+          describe(outcome.caughtIds),
+          "",
+          `SEEDED ISSUES MISSED (${outcome.missedIds.length}/${problem.answerKey.length}):`,
+          describe(outcome.missedIds),
+          "",
+          "Separately, the user's line comments that did NOT anchor to any seeded issue are below.",
           "For each, decide whether it's a genuine issue we didn't seed (a valid extra catch) or a false positive / nitpick.",
-          "Then write a headline + summary for the results screen. Be encouraging but honest.",
           "",
           "UNMATCHED COMMENTS:",
           unmatchedText,
+          "",
+          "Write a headline + summary for the results screen that reflects the true outcome — encouraging but honest.",
         ].join("\n"),
       },
     ],

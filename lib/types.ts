@@ -190,7 +190,9 @@ export type Submission =
 export interface IssueOutcome {
   issueId: string;
   status: "caught" | "missed";
-  /** Short label of the issue (severity + failure). */
+  /** Severity of the underlying seeded issue (shown as a chip in results). */
+  severity?: Severity;
+  /** Short label of the issue's failure. */
   failure: string;
   explanation: string;
   /** For caught issues: what the user said that matched. */

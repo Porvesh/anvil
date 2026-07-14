@@ -32,12 +32,16 @@ export async function gradeReview(
   comments: ReviewComment[],
 ): Promise<Grade> {
   const { caught, missed, unmatched } = matchReviewComments(comments, problem.answerKey);
-  const judgment = await judgeReview(problem, unmatched);
+  const judgment = await judgeReview(problem, unmatched, {
+    caughtIds: caught.map((c) => c.issue.id),
+    missedIds: missed.map((i) => i.id),
+  });
 
   const outcomes: IssueOutcome[] = [
     ...caught.map<IssueOutcome>((c) => ({
       issueId: c.issue.id,
       status: "caught",
+      severity: c.issue.severity,
       failure: c.issue.failure,
       explanation: c.issue.explanation,
       matchedOn: c.comment.body,
@@ -45,6 +49,7 @@ export async function gradeReview(
     ...missed.map<IssueOutcome>((i) => ({
       issueId: i.id,
       status: "missed",
+      severity: i.severity,
       failure: i.failure,
       explanation: i.explanation,
     })),
@@ -94,6 +99,7 @@ export async function gradeDebug(
     return {
       issueId: issue.id,
       status: addressed ? "caught" : "missed",
+      severity: issue.severity,
       failure: issue.failure,
       explanation: issue.explanation,
       matchedOn: verdict?.note,
