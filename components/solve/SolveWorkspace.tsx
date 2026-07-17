@@ -114,8 +114,10 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
   const streamInterviewer = useCallback(async (url: string, body: object, userText?: string) => {
     const gen = ++streamGen.current;
     setAiBusy(true);
+    // Drop any leftover blank interviewer bubble from a superseded stream, then
+    // append this turn's user text + a fresh empty bubble to stream into.
     setChat((prev) => [
-      ...prev,
+      ...prev.filter((m) => !(m.role === "interviewer" && m.content === "")),
       ...(userText ? [{ role: "user" as const, content: userText }] : []),
       { role: "interviewer" as const, content: "" },
     ]);
@@ -126,18 +128,25 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
         copy[copy.length - 1] = patch(copy[copy.length - 1]);
         return copy;
       });
-    await streamSSE(url, body, {
-      onDelta: (t) => patchLast((last) => ({ role: "interviewer", content: last.content + t })),
-      onError: (m) => patchLast(() => ({ role: "interviewer", content: `⚠️ ${m}` })),
-    });
-    if (gen !== streamGen.current) return; // superseded — the newer stream owns busy-state + cleanup
-    // A reply that streamed zero tokens would linger as a blank bubble (and
-    // poison later History payloads with empty assistant turns) — drop it.
-    setChat((prev) => {
-      const last = prev[prev.length - 1];
-      return last && last.role === "interviewer" && last.content === "" ? prev.slice(0, -1) : prev;
-    });
-    setAiBusy(false);
+    try {
+      await streamSSE(url, body, {
+        onDelta: (t) => patchLast((last) => ({ role: "interviewer", content: last.content + t })),
+        onError: (m) => patchLast(() => ({ role: "interviewer", content: `⚠️ ${m}` })),
+      });
+    } catch (err) {
+      // fetch threw or the reader died mid-stream — surface it rather than hang.
+      patchLast(() => ({ role: "interviewer", content: `⚠️ ${err instanceof Error ? err.message : "connection lost"}` }));
+    } finally {
+      // Only the current stream owns cleanup; a superseded one must not reset the
+      // newer stream's busy-state. The finally guarantees aiBusy is always cleared.
+      if (gen === streamGen.current) {
+        setChat((prev) => {
+          const last = prev[prev.length - 1];
+          return last && last.role === "interviewer" && last.content === "" ? prev.slice(0, -1) : prev;
+        });
+        setAiBusy(false);
+      }
+    }
   }, []);
 
   /** Transcript as sent to the model routes — never includes blank bubbles. */
