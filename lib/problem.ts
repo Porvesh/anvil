@@ -16,6 +16,7 @@ import type {
   RubricDimension,
   TestSuite,
 } from "./types";
+import { qualityLabel } from "./curation";
 
 /** Cast a stored Json column to a typed value (or null). */
 function json<T>(value: unknown): T | null {
@@ -40,6 +41,10 @@ export function toProblem(row: PrismaProblem): Problem {
     answerKey: (json<AnswerKeyIssue[]>(row.answerKey) ?? []),
     qualityScore: row.qualityScore,
     source: row.source as "authored" | "generated",
+    upvotes: row.upvotes,
+    downvotes: row.downvotes,
+    timesAttempted: row.timesAttempted,
+    retired: row.retired,
   };
 }
 
@@ -52,12 +57,16 @@ export function toPublicProblem(row: PrismaProblem): PublicProblem {
   return { ...rest, answerKeyCount: answerKey.length };
 }
 
-/** Compact bank-list row. */
+/** Compact bank-list row, including the curation signals the bank UI renders. */
 export function toSummary(row: PrismaProblem): ProblemSummary {
   return {
     id: row.id,
     type: row.type as ProblemType,
     title: row.title,
     difficulty: row.difficulty as Difficulty,
+    upvotes: row.upvotes,
+    downvotes: row.downvotes,
+    timesAttempted: row.timesAttempted,
+    quality: qualityLabel(row.upvotes, row.downvotes).tone,
   };
 }
