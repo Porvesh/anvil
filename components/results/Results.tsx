@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import type { Grade, Severity } from "@/lib/types";
+import { useRouter } from "next/navigation";
+import type { Grade, ProblemType, Severity } from "@/lib/types";
+import { ProblemRating } from "./ProblemRating";
 import styles from "./Results.module.css";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 44; // r=44
@@ -24,9 +26,34 @@ function SeverityChip({ severity }: { severity?: Severity }) {
  * explainable, not a trust-me number — the exact formula it came from. The
  * Socratic follow-up runs in the interviewer panel beside this.
  */
-export function Results({ grade, mode, onReview }: { grade: Grade; mode: "debug" | "review"; onReview: () => void }) {
+export function Results({
+  grade,
+  mode,
+  problemId,
+  problemType,
+  onReview,
+}: {
+  grade: Grade;
+  mode: "debug" | "review" | "design";
+  problemId: string;
+  problemType: ProblemType;
+  onReview: () => void;
+}) {
+  const router = useRouter();
+  const [loadingNext, setLoadingNext] = useState(false);
   const caught = grade.outcomes.filter((o) => o.status === "caught");
   const missed = grade.outcomes.filter((o) => o.status === "missed");
+
+  async function nextProblem() {
+    setLoadingNext(true);
+    try {
+      const res = await fetch(`/api/problems/random?type=${problemType}&exclude=${problemId}`);
+      const { id } = await res.json();
+      router.push(id ? `/solve/${id}` : "/");
+    } catch {
+      router.push("/");
+    }
+  }
 
   // Animate the ring from empty to the score on mount.
   const [offset, setOffset] = useState(RING_CIRCUMFERENCE);
@@ -121,6 +148,12 @@ export function Results({ grade, mode, onReview }: { grade: Grade; mode: "debug"
                 The flaws were seeded, so grading is a match against ground truth: <code>caught / {grade.outcomes.length} seeded</code> sets
                 the base, and each confirmed false positive costs <code>−12</code> — precision matters as much as recall in a real review.
               </>
+            ) : mode === "design" ? (
+              <>
+                <code>70%</code> rubric coverage — how many of the {grade.outcomes.length} dimensions a strong design must address you
+                actually addressed — plus <code>30%</code> depth: capacity math shown, trade-offs argued (not just named), failure modes
+                reasoned through.
+              </>
             ) : (
               <>
                 <code>55%</code> objective — does the test suite go green — plus <code>45%</code> approach quality: root-cause fix vs.
@@ -130,6 +163,8 @@ export function Results({ grade, mode, onReview }: { grade: Grade; mode: "debug"
           </span>
         </div>
 
+        <ProblemRating problemId={problemId} />
+
         <div className={styles.actions}>
           <Link href="/" className="btn-ghost">
             Back to bank
@@ -137,9 +172,9 @@ export function Results({ grade, mode, onReview }: { grade: Grade; mode: "debug"
           <button className="btn-ghost" onClick={onReview}>
             Review my answer
           </button>
-          <Link href="/" className="btn-primary">
-            Save &amp; next problem
-          </Link>
+          <button className="btn-primary" onClick={nextProblem} disabled={loadingNext}>
+            {loadingNext ? "Finding one…" : `Next ${problemType} problem →`}
+          </button>
         </div>
       </div>
     </div>

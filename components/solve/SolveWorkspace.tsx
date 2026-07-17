@@ -7,6 +7,7 @@ import { getSessionId } from "@/lib/session";
 import { streamSSE } from "@/lib/sseClient";
 import { DebugPane } from "./DebugPane";
 import { ReviewPane } from "./ReviewPane";
+import { DesignPane } from "./DesignPane";
 import { ProblemBrief } from "./ProblemBrief";
 import { GradingOverlay } from "./GradingOverlay";
 import { InterviewerPanel } from "@/components/ai/InterviewerPanel";
@@ -28,20 +29,37 @@ function diffToText(problem: PublicProblem): string {
     .join("\n");
 }
 
-const SOLVE_SUGGESTIONS = ["Where should I start?", "Give me a nudge — not the answer", "Why would this matter in prod?"];
+const SOLVE_SUGGESTIONS: Record<"debug" | "review" | "design", string[]> = {
+  debug: ["Where should I start?", "Give me a nudge — not the answer", "Why would this matter in prod?"],
+  review: ["Where should I start?", "Give me a nudge — not the answer", "What would you block a PR over?"],
+  design: ["What should I pin down first?", "Poke a hole in my current draft", "Is my capacity math sane?"],
+};
 const RESULTS_SUGGESTIONS = ["Walk me through what I missed", "How would I catch this next time?"];
+
+const GREETINGS: Record<"debug" | "review" | "design", string> = {
+  debug:
+    "Read the bug report above, then trace the code before changing anything. Run early, run often — the failing tests are your map. Ping me for a nudge.",
+  review:
+    "Read the PR like you'd review a teammate's — the description sounds reasonable, which is exactly the trap. Click a line to comment. I'm here if you want a nudge.",
+  design:
+    "Treat me as the interviewer in the room: state your assumptions, do the capacity math out loud, and argue trade-offs in the doc. Ask me to poke holes whenever you want pressure.",
+};
 
 /**
  * The solve workspace (spec §6): the shared shell whose center pane morphs by
  * mode, plus the persistent interviewer panel. Owns the whole loop —
- * edit/run/comment → submit → grade → Socratic follow-up — as a small phase
- * machine, mirroring the single-surface flow of the v1.html prototype.
+ * edit/run/comment/write → submit → grade → Socratic follow-up — as a small
+ * phase machine, mirroring the single-surface flow of the v1.html prototype.
  */
 export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
   const isDebug = problem.type === "debug";
   const isReview = problem.type === "review";
+  const isDesign = problem.type === "design";
+  const mode: "debug" | "review" | "design" = isDebug ? "debug" : isReview ? "review" : "design";
 
   // --- solve state ---
+  // `code` is the editable artifact for the mode: Python for debug, the design
+  // doc (markdown) for design. Review mode edits `comments` instead.
   const [code, setCode] = useState(problem.starterCode ?? "");
   const [comments, setComments] = useState<ReviewComment[]>([]);
   const [running, setRunning] = useState(false);
@@ -56,22 +74,16 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
   const attemptId = useRef<string | null>(null);
 
   // --- interviewer chat ---
-  const [chat, setChat] = useState<ChatMessage[]>([
-    {
-      role: "interviewer",
-      content: isReview
-        ? "Read the PR like you'd review a teammate's — the description sounds reasonable, which is exactly the trap. Click a line to comment. I'm here if you want a nudge."
-        : "Read the bug report above, then trace the code before changing anything. Run early, run often — the failing tests are your map. Ping me for a nudge.",
-    },
-  ]);
+  const [chat, setChat] = useState<ChatMessage[]>([{ role: "interviewer", content: GREETINGS[mode] }]);
   const [aiBusy, setAiBusy] = useState(false);
 
-  // --- timer ---
+  // --- timer (paused while the results screen is up) ---
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
+    if (phase !== "solve") return;
     const id = setInterval(() => setElapsed((e) => e + 1), 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [phase]);
 
   const elapsedRef = useRef(elapsed);
   elapsedRef.current = elapsed;
@@ -95,30 +107,41 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
   }, [code, problem.testSuite, running]);
 
   // --- streaming interviewer helper ---
+  // Each stream gets a generation id; a newer stream (or the submit flow, which
+  // resets the transcript) invalidates older ones so late deltas can't write
+  // into the wrong bubble — or into an empty transcript.
+  const streamGen = useRef(0);
   const streamInterviewer = useCallback(async (url: string, body: object, userText?: string) => {
+    const gen = ++streamGen.current;
     setAiBusy(true);
     setChat((prev) => [
       ...prev,
       ...(userText ? [{ role: "user" as const, content: userText }] : []),
       { role: "interviewer" as const, content: "" },
     ]);
+    const patchLast = (patch: (last: ChatMessage) => ChatMessage) =>
+      setChat((prev) => {
+        if (gen !== streamGen.current || prev.length === 0) return prev;
+        const copy = [...prev];
+        copy[copy.length - 1] = patch(copy[copy.length - 1]);
+        return copy;
+      });
     await streamSSE(url, body, {
-      onDelta: (t) =>
-        setChat((prev) => {
-          const copy = [...prev];
-          const last = copy[copy.length - 1];
-          copy[copy.length - 1] = { role: "interviewer", content: last.content + t };
-          return copy;
-        }),
-      onError: (m) =>
-        setChat((prev) => {
-          const copy = [...prev];
-          copy[copy.length - 1] = { role: "interviewer", content: `⚠️ ${m}` };
-          return copy;
-        }),
+      onDelta: (t) => patchLast((last) => ({ role: "interviewer", content: last.content + t })),
+      onError: (m) => patchLast(() => ({ role: "interviewer", content: `⚠️ ${m}` })),
+    });
+    if (gen !== streamGen.current) return; // superseded — the newer stream owns busy-state + cleanup
+    // A reply that streamed zero tokens would linger as a blank bubble (and
+    // poison later History payloads with empty assistant turns) — drop it.
+    setChat((prev) => {
+      const last = prev[prev.length - 1];
+      return last && last.role === "interviewer" && last.content === "" ? prev.slice(0, -1) : prev;
     });
     setAiBusy(false);
   }, []);
+
+  /** Transcript as sent to the model routes — never includes blank bubbles. */
+  const historyFor = (messages: ChatMessage[]) => messages.filter((m) => m.content.trim() !== "");
 
   // --- submit for grading ---
   const submit = useCallback(async () => {
@@ -126,7 +149,9 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
     setSubmitError(null);
     const submission = isDebug
       ? { mode: "debug" as const, code, runHistory: runs }
-      : { mode: "review" as const, comments };
+      : isReview
+        ? { mode: "review" as const, comments }
+        : { mode: "design" as const, doc: code };
 
     try {
       const res = await fetch("/api/grade", {
@@ -141,6 +166,8 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
       const data: { attemptId: string; grade: Grade } = await res.json();
       attemptId.current = data.attemptId;
       setGrade(data.grade);
+      streamGen.current++; // invalidate any in-flight hint stream before resetting the transcript
+      setAiBusy(false);
       setChat([]);
       setPhase("results");
       // Open the Socratic follow-up.
@@ -150,13 +177,16 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
     } finally {
       setSubmitting(false);
     }
-  }, [isDebug, code, comments, runs, problem.id, streamInterviewer]);
+  }, [isDebug, isReview, code, comments, runs, problem.id, streamInterviewer]);
 
-  // --- interviewer input (mode depends on phase) ---
+  // --- interviewer input ---
+  // Once an attempt is graded the conversation stays Socratic (even if the user
+  // pops back to the solve surface via "Review my answer") — the interviewer is
+  // probing the graded attempt, not hinting a fresh solve.
   const onInterviewerSend = useCallback(
     (text: string) => {
-      if (phase === "results" && attemptId.current) {
-        void streamInterviewer("/api/socratic", { attemptId: attemptId.current, history: chat, userMessage: text }, text);
+      if (attemptId.current) {
+        void streamInterviewer("/api/socratic", { attemptId: attemptId.current, history: historyFor(chat), userMessage: text }, text);
       } else {
         void streamInterviewer(
           "/api/hint",
@@ -165,14 +195,15 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
             code: isDebug ? code : undefined,
             output: runResult?.output,
             diffText: isReview ? diffToText(problem) : undefined,
-            history: chat,
+            doc: isDesign ? code : undefined,
+            history: historyFor(chat),
             userMessage: text,
           },
           text,
         );
       }
     },
-    [phase, chat, problem, isDebug, isReview, code, runResult, streamInterviewer],
+    [chat, problem, isDebug, isReview, isDesign, code, runResult, streamInterviewer],
   );
 
   const askHint = useCallback(() => {
@@ -183,13 +214,14 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
   const canSubmit = useMemo(() => {
     if (submitting) return false;
     if (isReview) return comments.length > 0;
+    if (isDesign) return code.trim().length > 0;
     return true;
-  }, [submitting, isReview, comments.length]);
+  }, [submitting, isReview, isDesign, comments.length, code]);
 
   const crumbType = isDebug ? "Debug" : isReview ? "Code review" : "System design";
-  const submitLabel = isReview ? "Submit review" : "Submit for review";
+  const submitLabel = isReview ? "Submit review" : isDesign ? "Submit design" : "Submit for review";
   const interviewerRole =
-    phase === "results" ? "Probing the gaps you missed" : "Quiet until you ask · then probes your gaps";
+    phase === "results" ? "Probing the gaps you missed" : isDesign ? "In the room — probes as you design" : "Quiet until you ask · then probes your gaps";
   const interviewerFooter =
     phase === "results" ? "The follow-up is where the learning is" : "Hints on-demand while you solve · full grading on submit";
 
@@ -207,17 +239,27 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
         {phase === "solve" && (
           <>
             {submitError && <span className={shell.error}>{submitError}</span>}
-            <button className={shell.hintbtn} onClick={askHint} disabled={aiBusy}>
-              Ask for a hint
-            </button>
-            <button
-              className={shell.submit}
-              onClick={submit}
-              disabled={!canSubmit}
-              title={isReview && comments.length === 0 ? "Leave at least one comment first" : undefined}
-            >
-              {submitting ? "Grading…" : submitLabel}
-            </button>
+            {grade ? (
+              // Post-grade "Review my answer" state: the attempt is already
+              // graded, so the actions become navigation, not re-submission.
+              <button className={shell.hintbtn} onClick={() => setPhase("results")}>
+                Back to results
+              </button>
+            ) : (
+              <>
+                <button className={shell.hintbtn} onClick={askHint} disabled={aiBusy}>
+                  Ask for a hint
+                </button>
+                <button
+                  className={shell.submit}
+                  onClick={submit}
+                  disabled={!canSubmit}
+                  title={isReview && comments.length === 0 ? "Leave at least one comment first" : undefined}
+                >
+                  {submitting ? "Grading…" : submitLabel}
+                </button>
+              </>
+            )}
           </>
         )}
       </div>
@@ -225,7 +267,7 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
       <div className={shell.stage}>
         <div className={shell.center}>
           {phase === "results" && grade ? (
-            <Results grade={grade} mode={isDebug ? "debug" : "review"} onReview={() => setPhase("solve")} />
+            <Results grade={grade} mode={mode} problemId={problem.id} problemType={problem.type} onReview={() => setPhase("solve")} />
           ) : isDebug ? (
             <>
               <ProblemBrief type="debug" difficulty={problem.difficulty} prompt={problem.prompt} issueCount={problem.answerKeyCount} />
@@ -243,7 +285,10 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
               onRemoveComment={(index) => setComments((c) => c.filter((_, i) => i !== index))}
             />
           ) : (
-            <div style={{ padding: 40, color: "var(--steel)" }}>System design is a phase-2 mode — not available yet.</div>
+            <>
+              <ProblemBrief type="design" difficulty={problem.difficulty} prompt={problem.prompt} issueCount={problem.answerKeyCount} />
+              <DesignPane doc={code} onDocChange={setCode} />
+            </>
           )}
           {submitting && <GradingOverlay />}
         </div>
@@ -254,7 +299,7 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
           onSend={onInterviewerSend}
           busy={aiBusy}
           footer={interviewerFooter}
-          suggestions={phase === "results" ? RESULTS_SUGGESTIONS : SOLVE_SUGGESTIONS}
+          suggestions={phase === "results" ? RESULTS_SUGGESTIONS : SOLVE_SUGGESTIONS[mode]}
         />
       </div>
     </div>

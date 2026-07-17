@@ -17,7 +17,7 @@ import type { AnswerKeyIssue, DiffHunk, PrMeta, TestSuite } from "../lib/types";
 const prisma = new PrismaClient();
 
 interface SeedProblem {
-  type: "debug" | "review";
+  type: "debug" | "review" | "design";
   difficulty: "easy" | "medium" | "hard";
   title: string;
   prompt: string;
@@ -655,7 +655,89 @@ const reviewPagination: SeedProblem = {
   ],
 };
 
+// ---------------------------------------------------------------------------
+// DESIGN PROBLEMS — open-ended, graded against a seeded rubric (no line anchors)
+// ---------------------------------------------------------------------------
+
+const designRateLimiter: SeedProblem = {
+  type: "design",
+  difficulty: "hard",
+  title: "Design a distributed rate limiter",
+  prompt:
+    "An API gateway spread across 12 regions must enforce a per-user limit of 1,000 requests/minute. Design it. The interviewer will push on the parts you gloss over — think out loud in the doc: state your assumptions, show the capacity math, argue the trade-offs, and reason through what happens when things fail.",
+  starterCode: `# Design: distributed rate limiter (1,000 req/min per user, 12 regions)
+
+## Requirements & assumptions
+<!-- traffic shape, QPS, hard vs soft limit, per-user vs per-key, accuracy tolerance -->
+
+## Approach & data model
+<!-- algorithm (token bucket / sliding window?), where counters live, key schema -->
+
+## Handling 12 regions
+<!-- local vs centralized counting, how regions share state, consistency -->
+
+## Failure modes
+<!-- counter store down, clock skew, hot keys, thundering herd -->
+
+## Trade-offs
+<!-- accuracy vs latency vs cost; what you deliberately gave up -->
+`,
+  answerKey: [
+    {
+      id: "requirements",
+      lineStart: 0,
+      lineEnd: 0,
+      severity: "major",
+      failure: "Requirements & scale not pinned down before designing.",
+      explanation:
+        "Estimates the request volume (e.g. N users × 1000/min → peak QPS), decides hard vs. soft limiting, and states whether the limit is global-per-user or per-region — the numbers that drive every later choice.",
+      keywords: ["qps", "requests per", "assume", "peak", "hard limit", "soft limit"],
+    },
+    {
+      id: "algorithm",
+      lineStart: 0,
+      lineEnd: 0,
+      severity: "major",
+      failure: "No concrete limiting algorithm or counter data model.",
+      explanation:
+        "Picks token bucket or sliding-window (and justifies it over fixed-window's boundary bursts), and specifies the counter key/value and where it lives (e.g. Redis with per-user keys + TTL).",
+      keywords: ["token bucket", "sliding window", "fixed window", "redis", "counter", "leaky bucket"],
+    },
+    {
+      id: "distribution",
+      lineStart: 0,
+      lineEnd: 0,
+      severity: "critical",
+      failure: "Doesn't address how 12 regions enforce ONE global limit.",
+      explanation:
+        "Confronts the core tension: local per-region counters are fast but let a user exceed the global limit N-fold; a shared/centralized store is accurate but adds latency. Proposes a real stance (central store, or local buckets with async reconciliation) and owns its cost.",
+      keywords: ["central", "shared state", "replicat", "sync", "regions", "global", "eventual", "local counter"],
+    },
+    {
+      id: "atomicity",
+      lineStart: 0,
+      lineEnd: 0,
+      severity: "major",
+      failure: "Check-then-decrement race on the shared counter is ignored.",
+      explanation:
+        "Recognizes that read-then-write on a shared counter races under concurrency and uses an atomic operation (Redis INCR/Lua script, atomic token-bucket refill) so simultaneous requests can't both pass the last token.",
+      keywords: ["atomic", "incr", "lua", "race", "compare and swap", "transaction"],
+    },
+    {
+      id: "failure",
+      lineStart: 0,
+      lineEnd: 0,
+      severity: "major",
+      failure: "Failure modes (store down, clock skew, hot keys) not reasoned through.",
+      explanation:
+        "Decides fail-open vs. fail-closed when the counter store is unreachable, handles clock skew across regions for time-windowed limits, and addresses hot-key/thundering-herd for a single popular user.",
+      keywords: ["fail open", "fail closed", "clock skew", "hot key", "outage", "unavailable", "degrade"],
+    },
+  ],
+};
+
 const ALL: SeedProblem[] = [
+  designRateLimiter,
   debugBatcher,
   debugTokenBucket,
   debugLruCache,
