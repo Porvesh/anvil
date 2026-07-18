@@ -20,5 +20,8 @@ export const MODELS = {
 export const MAX_TOKENS = {
   grade: 2048,
   socratic: 1024,
-  generation: 16000,
+  // Generation emits a full multi-file project TWICE (correct + buggy) plus
+  // tests and the answer key, on top of adaptive-thinking tokens — needs headroom
+  // or the structured JSON truncates mid-string.
+  generation: 32000,
 } as const;

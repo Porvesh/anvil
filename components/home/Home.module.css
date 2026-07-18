@@ -51,7 +51,7 @@
 }
 .jd textarea {
   width: 100%;
-  min-height: 132px;
+  min-height: 340px;
   resize: vertical;
   margin-top: 12px;
   background: var(--iron);
@@ -93,6 +93,33 @@
 }
 .cta {
   margin-left: auto;
+}
+.genNote {
+  color: var(--steel);
+  font-size: 12.5px;
+  margin: 12px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.genNote::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--spark);
+  border-top-color: transparent;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.genError {
+  color: var(--red);
+  font-size: 12.5px;
+  margin: 12px 0 0;
 }
 
 .side h3 {

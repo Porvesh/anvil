@@ -15,11 +15,41 @@ import type { Difficulty } from "../types";
 const FLAW_MENU =
   "off-by-one under a condition, unbounded retry/loop, race on shared state, silent exception swallow, subtle type coercion, a plausible-but-wrong fix, or a missing idempotency guard";
 
+/**
+ * Stream a structured-output generation and return the validated object.
+ * Streaming is required for the large multi-file outputs (SDK refuses
+ * non-streaming above ~16K max_tokens); we collect the final message and
+ * validate its JSON against the schema.
+ */
+async function streamStructured<T extends z.ZodTypeAny>(schema: T, system: string, user: string): Promise<z.infer<T>> {
+  const stream = anthropic.messages.stream({
+    model: MODELS.generation,
+    max_tokens: MAX_TOKENS.generation,
+    thinking: { type: "adaptive" },
+    system,
+    messages: [{ role: "user", content: user }],
+    output_config: { format: zodOutputFormat(schema) },
+  });
+  const msg = await stream.finalMessage();
+  const text = msg.content
+    .filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")
+    .map((b) => b.text)
+    .join("");
+  return schema.parse(JSON.parse(text));
+}
+
+const fileSchema = z.object({
+  path: z.string().describe("relative path within the project, e.g. 'billing/invoice.py'"),
+  content: z.string(),
+  readOnly: z.boolean().describe("true for fixture/neighbour files the user should NOT edit (models, configs, the module the bug is NOT in)"),
+});
+
 const answerKeyField = z
   .array(
     z.object({
       id: z.string().describe("stable kebab-case id"),
-      lineStart: z.number().describe("1-based line in the buggy code / diff new-file numbering"),
+      file: z.string().describe("path of the file the flaw lives in (debug: the buggy module; review: the diff file)"),
+      lineStart: z.number().describe("1-based line within `file` (debug) / diff new-file numbering (review)"),
       lineEnd: z.number(),
       severity: z.enum(["critical", "major", "minor"]),
       failure: z.string().describe("the concrete failure this flaw causes"),
@@ -33,46 +63,37 @@ const answerKeyField = z
 
 const GeneratedDebugSchema = z.object({
   title: z.string(),
-  prompt: z.string().describe("the symptom the user sees — no spoilers about the cause"),
-  setup: z.string().describe("Python run before the solution: imports/fixtures/helpers, or empty string"),
-  correctCode: z.string().describe("idiomatic, correct Python that passes all tests"),
-  buggyCode: z.string().describe("the correct code with 1-3 realistic flaws injected — this is what the user edits"),
+  prompt: z.string().describe("the symptom the user sees, as an incident/bug report — no spoilers about the cause"),
+  setup: z.string().describe("Python run before the tests: imports the project package + defines fixtures (e.g. `from billing.invoice import invoice_total`)"),
+  correctFiles: z.array(fileSchema).describe("the correct multi-file project (a Python package: __init__.py + 2-4 modules) that passes all tests"),
+  buggyFiles: z.array(fileSchema).describe("SAME file paths as correctFiles, but with 1-3 realistic flaws injected into ONE module — this is what the user edits"),
   cases: z
-    .array(z.object({ name: z.string(), body: z.string().describe("Python asserting against the solution; fails on the bug") }))
-    .describe("tests that PASS on correctCode and FAIL on buggyCode"),
+    .array(z.object({ name: z.string(), body: z.string().describe("Python asserting against the imported project; fails on the bug") }))
+    .describe("tests that PASS on correctFiles and FAIL on buggyFiles"),
   answerKey: answerKeyField,
 });
 export type GeneratedDebug = z.infer<typeof GeneratedDebugSchema>;
 
 export async function generateDebug(difficulty: Difficulty, topic?: string, jd?: string): Promise<GeneratedDebug> {
-  const res = await anthropic.messages.parse({
-    model: MODELS.generation,
-    max_tokens: MAX_TOKENS.generation,
-    thinking: { type: "adaptive" },
-    system: [
-      "You author debugging exercises for an interview-practice tool.",
-      "Constraints: pure Python only (runs in Pyodide — no network, no filesystem, no third-party packages beyond stdlib).",
-      "The task must be small and self-contained. Setup may define helpers the solution calls.",
-      `Inject 1-3 realistic flaws of the kind that pass a casual read: ${FLAW_MENU}.`,
-      "Tests MUST pass on correctCode and FAIL on buggyCode. Line numbers in the answer key are 1-based against buggyCode.",
-    ].join("\n"),
-    messages: [
-      {
-        role: "user",
-        content: [
-          `Difficulty: ${difficulty}.`,
-          topic ? `Topic: ${topic}.` : "",
-          jd ? `Tailor the domain to this job description:\n${jd}` : "",
-          "Produce one debug problem.",
-        ]
-          .filter(Boolean)
-          .join("\n"),
-      },
-    ],
-    output_config: { format: zodOutputFormat(GeneratedDebugSchema) },
-  });
-  if (!res.parsed_output) throw new Error("generation returned no structured output");
-  return res.parsed_output;
+  const system = [
+    "You author debugging exercises that feel like real production code, for an interview-practice tool.",
+    "Constraints: pure Python only (runs in Pyodide — no network, no filesystem, no third-party packages beyond stdlib).",
+    "Structure the code as a REAL multi-file package, not one script: an __init__.py plus 2-4 modules that import each other",
+    "(e.g. models/types in one module, the core logic in another, a small helper). Mark files the user shouldn't edit as readOnly",
+    "(the neighbouring modules, fixtures) and leave the module containing the bug editable. The `setup` imports the package.",
+    `Inject 1-3 realistic flaws of the kind that pass a casual read: ${FLAW_MENU}.`,
+    "correctFiles and buggyFiles MUST share identical paths. Tests MUST pass on correctFiles and FAIL on buggyFiles.",
+    "In the answer key, set `file` to the buggy module's path and lineStart/lineEnd to the 1-based lines within that file.",
+  ].join("\n");
+  const user = [
+    `Difficulty: ${difficulty}.`,
+    topic ? `Topic: ${topic}.` : "",
+    jd ? `Tailor the domain, stack, and seniority to this job description:\n${jd}` : "",
+    "Produce one realistic multi-file debug problem.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return streamStructured(GeneratedDebugSchema, system, user);
 }
 
 // --- Review ---
@@ -107,34 +128,23 @@ const GeneratedReviewSchema = z.object({
 export type GeneratedReview = z.infer<typeof GeneratedReviewSchema>;
 
 export async function generateReview(difficulty: Difficulty, topic?: string, jd?: string): Promise<GeneratedReview> {
-  const res = await anthropic.messages.parse({
-    model: MODELS.generation,
-    max_tokens: MAX_TOKENS.generation,
-    thinking: { type: "adaptive" },
-    system: [
-      "You author code-review exercises: a plausible AI-generated PR (git diff) hiding planted flaws.",
-      "The PR description should sound reasonable — the skill being trained is catching bugs in convincing AI slop.",
-      `Plant 1-3 realistic flaws: ${FLAW_MENU}.`,
-      "Use context/add/del diff lines. Every add/context line has a new-file lineNo; del lines have lineNo null.",
-      "Answer-key line numbers reference the new-file lineNo where the flaw lives.",
-    ].join("\n"),
-    messages: [
-      {
-        role: "user",
-        content: [
-          `Difficulty: ${difficulty}.`,
-          topic ? `Topic: ${topic}.` : "",
-          jd ? `Tailor the domain to this job description:\n${jd}` : "",
-          "Produce one code-review problem.",
-        ]
-          .filter(Boolean)
-          .join("\n"),
-      },
-    ],
-    output_config: { format: zodOutputFormat(GeneratedReviewSchema) },
-  });
-  if (!res.parsed_output) throw new Error("generation returned no structured output");
-  return res.parsed_output;
+  const system = [
+    "You author code-review exercises: a plausible AI-generated PR (git diff) hiding planted flaws.",
+    "The PR description should sound reasonable — the skill being trained is catching bugs in convincing AI slop.",
+    "Make it realistic: the PR should touch 1-2 files (a real change often spans more than one), with proper context lines.",
+    `Plant 1-3 realistic flaws: ${FLAW_MENU}.`,
+    "Use context/add/del diff lines. Every add/context line has a new-file lineNo; del lines have lineNo null.",
+    "In the answer key, set `file` to the diff file path and lineStart/lineEnd to the new-file lineNo where the flaw lives.",
+  ].join("\n");
+  const user = [
+    `Difficulty: ${difficulty}.`,
+    topic ? `Topic: ${topic}.` : "",
+    jd ? `Tailor the domain to this job description:\n${jd}` : "",
+    "Produce one realistic code-review problem.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return streamStructured(GeneratedReviewSchema, system, user);
 }
 
 // --- Review self-check (model-based; no executable oracle for review) ---
