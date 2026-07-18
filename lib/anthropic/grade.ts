@@ -13,7 +13,7 @@ import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { anthropic } from "./client";
 import { MODELS, MAX_TOKENS } from "./models";
-import type { AnswerKeyIssue, Problem, ReviewComment, RunRecord } from "../types";
+import type { AnswerKeyIssue, Problem, ReviewComment, RunRecord, SolutionFile } from "../types";
 
 // --- structured output schemas ---
 
@@ -214,9 +214,14 @@ export async function judgeDesign(problem: Problem, doc: string): Promise<Design
 // Debug judgment
 // ---------------------------------------------------------------------------
 
+/** Render a multi-file project as a single annotated blob for the model. */
+function renderFiles(files: { path: string; content: string }[]): string {
+  return files.map((f) => `----- ${f.path} -----\n${f.content}`).join("\n\n");
+}
+
 export async function judgeDebug(
   problem: Problem,
-  finalCode: string,
+  finalFiles: SolutionFile[],
   runHistory: RunRecord[],
   testsPassed: boolean,
 ): Promise<DebugJudgment> {
@@ -227,8 +232,8 @@ export async function judgeDebug(
       `Problem: ${problem.title}`,
       `Symptom: ${problem.prompt}`,
       "",
-      "ORIGINAL (buggy) CODE:",
-      problem.starterCode ?? "",
+      "ORIGINAL (buggy) PROJECT:",
+      renderFiles(problem.files ?? []),
       "",
       "ANSWER KEY (the seeded flaws):",
       renderAnswerKey(problem.answerKey),
@@ -249,8 +254,8 @@ export async function judgeDebug(
         content: [
           `Objective result: the test suite ${testsPassed ? "PASSES" : "does NOT pass"} on the final submission.`,
           "",
-          "FINAL SUBMITTED CODE:",
-          finalCode,
+          "FINAL SUBMITTED PROJECT:",
+          renderFiles(finalFiles),
           "",
           "RUN HISTORY (iteration count is a quality signal):",
           runSummary,

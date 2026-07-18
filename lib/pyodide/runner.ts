@@ -11,7 +11,7 @@
  *
  * Browser-only (uses `Worker`). Import lazily from client components.
  */
-import type { RunResult, TestSuite } from "../types";
+import type { RunResult, SolutionFile, TestSuite } from "../types";
 import { buildRunPayload } from "./harness";
 
 const DEFAULT_TIMEOUT_MS = 5000;
@@ -60,7 +60,7 @@ export class PyodideRunner {
 
   /** Run the user's code against a test suite; resolves (never rejects). */
   async run(
-    userCode: string,
+    files: SolutionFile[],
     suite: TestSuite,
     timeoutMs: number = DEFAULT_TIMEOUT_MS,
   ): Promise<RunResult> {
@@ -72,7 +72,7 @@ export class PyodideRunner {
       return { ok: false, output: "", tests: [], error: `Failed to load Pyodide: ${String(err)}` };
     }
 
-    const payload = { type: "run" as const, ...buildRunPayload(suite, userCode) };
+    const payload = { type: "run" as const, ...buildRunPayload(suite, files) };
 
     return new Promise<RunResult>((resolve) => {
       const timer = setTimeout(() => {

@@ -14,6 +14,7 @@ import type {
   PublicProblem,
   Difficulty,
   RubricDimension,
+  SolutionFile,
   TestSuite,
 } from "./types";
 import { qualityLabel } from "./curation";
@@ -34,6 +35,11 @@ export function toProblem(row: PrismaProblem): Problem {
     prompt: row.prompt,
     jdContext: row.jdContext,
     starterCode: row.starterCode,
+    // Prefer multi-file; fall back to wrapping legacy single-file starterCode so
+    // old rows keep working through the multi-file editor.
+    files:
+      json<SolutionFile[]>(row.files) ??
+      (row.starterCode ? [{ path: "solution.py", content: row.starterCode }] : null),
     diff: json<DiffHunk[]>(row.diff),
     prMeta: json<PrMeta>(row.prMeta),
     testSuite: json<TestSuite>(row.testSuite),

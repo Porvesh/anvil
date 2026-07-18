@@ -3,44 +3,72 @@
  * is executed. All Python logic lives here (not in the worker) so it can be unit
  * tested and there is exactly one place that defines the execution contract.
  *
- * Execution model:
- *   1. `setup`     — problem-provided fixtures/helpers (e.g. a fake `dispatch`).
- *   2. `USER_CODE` — the user's edited solution.
- *   3. each test   — run in a shallow copy of the shared namespace so cases can't
- *                    clobber each other; an AssertionError = fail, clean = pass.
+ * Multi-file execution model (real projects, not one script):
+ *   1. Every file in FILES_JSON is written to a project root on the virtual FS.
+ *   2. The root is put on sys.path, and any modules imported from it on a prior
+ *      run are purged so edits actually take effect on re-run (the worker is warm).
+ *   3. `setup` runs (typically `from pkg.mod import Thing`, plus fixtures).
+ *   4. each test runs in a shallow copy of the shared namespace so cases can't
+ *      clobber each other; an AssertionError = fail, clean = pass.
  *
  * Data crosses the JS→Python boundary via Pyodide globals (set by the worker),
- * never by string interpolation — so user code containing quotes/backslashes
- * can never break the harness.
+ * never by string interpolation — so file contents with quotes/backslashes can
+ * never break the harness.
  */
-import type { RunRequest, TestSuite } from "../types";
+import type { RunRequest, SolutionFile, TestSuite } from "../types";
+
+const PROJECT_ROOT = "/anvil_project";
 
 /**
- * Fixed Python program executed by the worker. Reads USER_CODE, SETUP_CODE, and
+ * Fixed Python program executed by the worker. Reads FILES_JSON, SETUP_CODE, and
  * TESTS_JSON from its globals and returns a JSON string:
  *   { "tests": [{ "name", "passed", "message"? }], "error": <str|null> }
  */
 export const HARNESS = `
-import json, traceback
+import json, os, sys, shutil, importlib, traceback
+
+ROOT = ${JSON.stringify(PROJECT_ROOT)}
 
 def _fmt_exc(e):
     return "".join(traceback.format_exception_only(type(e), e)).strip()
 
+def _write_project():
+    # Rewrite the whole tree each run so deleted/renamed files don't linger.
+    if os.path.isdir(ROOT):
+        shutil.rmtree(ROOT)
+    os.makedirs(ROOT, exist_ok=True)
+    for f in json.loads(FILES_JSON):
+        full = os.path.join(ROOT, f["path"])
+        os.makedirs(os.path.dirname(full) or ROOT, exist_ok=True)
+        with open(full, "w") as fh:
+            fh.write(f["content"])
+    if ROOT not in sys.path:
+        sys.path.insert(0, ROOT)
+
+def _purge_modules():
+    # Drop modules imported from ROOT on a previous run so this run sees edits.
+    for name in list(sys.modules):
+        mod = sys.modules.get(name)
+        path = getattr(mod, "__file__", None)
+        if path and path.startswith(ROOT):
+            del sys.modules[name]
+    importlib.invalidate_caches()
+
 def _run():
     out = {"tests": [], "error": None}
+    _purge_modules()
+    _write_project()
     ns = {}
+    # setup imports the project + defines fixtures; an import/syntax error in the
+    # user's files surfaces here as a top-level error, not a per-test failure.
     if SETUP_CODE:
         exec(SETUP_CODE, ns)
-    # A failure to even load the solution (syntax error, NameError at import
-    # time) is a top-level error, not a per-test failure.
-    exec(USER_CODE, ns)
     for case in json.loads(TESTS_JSON):
         try:
             exec(case["body"], dict(ns))
             out["tests"].append({"name": case["name"], "passed": True})
         except AssertionError as e:
-            msg = str(e) or "assertion failed"
-            out["tests"].append({"name": case["name"], "passed": False, "message": msg})
+            out["tests"].append({"name": case["name"], "passed": False, "message": str(e) or "assertion failed"})
         except Exception as e:  # noqa: BLE001 - report any test error to the user
             out["tests"].append({"name": case["name"], "passed": False, "message": _fmt_exc(e)})
     return out
@@ -57,21 +85,22 @@ json.dumps(_result)
 export interface RunPayload extends RunRequest {
   setup: string;
   testsJson: string;
+  filesJson: string;
   harness: string;
 }
 
 /**
- * Build the worker payload from a problem's test suite + the user's code.
- * `testCode` is retained on the payload for the RunRequest contract but the
- * worker drives execution off `testsJson`/`harness`.
+ * Build the worker payload from a problem's test suite + the user's project
+ * files. `userCode`/`testCode` are retained for the RunRequest contract; the
+ * worker drives execution off `filesJson`/`testsJson`/`harness`.
  */
-export function buildRunPayload(suite: TestSuite, userCode: string): RunPayload {
-  const testsJson = JSON.stringify(suite.cases ?? []);
+export function buildRunPayload(suite: TestSuite, files: SolutionFile[]): RunPayload {
   return {
-    userCode,
+    userCode: "", // legacy field — files carry the code now
     testCode: HARNESS,
     setup: suite.setup ?? "",
-    testsJson,
+    testsJson: JSON.stringify(suite.cases ?? []),
+    filesJson: JSON.stringify(files.map((f) => ({ path: f.path, content: f.content }))),
     harness: HARNESS,
   };
 }

@@ -30,7 +30,8 @@ model Problem {
   jdContext String? // nullable; the JD this problem was tailored from
 
   // --- mode-specific content ---
-  starterCode String? // debug: the buggy code the user edits
+  starterCode String? // debug: legacy single-file source (superseded by `files`)
+  files       Json? // debug: SolutionFile[] — the editable multi-file project
   diff        Json? // review: structured unified-diff hunks (see DiffHunk[])
   prMeta      Json? // review: PR dressing {number, branch, additions, deletions, files, aiGenerated}
   testSuite   Json? // debug: { setup, cases: TestCase[] } — runs in Pyodide

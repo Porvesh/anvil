@@ -12,15 +12,42 @@
   border-bottom: 1px solid var(--edge-soft);
   background: var(--slab);
 }
+.tabs {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  max-width: 52%;
+  scrollbar-width: thin;
+}
 .filetab {
   font-family: var(--mono);
   font-size: 12.5px;
-  color: var(--parchment-dim);
-  padding: 5px 12px;
+  color: var(--steel-dim);
+  padding: 6px 12px;
   border-radius: 7px 7px 0 0;
-  background: var(--iron);
-  border: 1px solid var(--edge-soft);
+  background: transparent;
+  border: 1px solid transparent;
   border-bottom: none;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.filetab:hover {
+  color: var(--parchment-dim);
+  background: var(--slab2);
+}
+.filetabOn {
+  color: var(--parchment);
+  background: var(--iron);
+  border-color: var(--edge-soft);
+}
+.filedir {
+  color: var(--steel-dim);
+}
+.lock {
+  font-size: 9px;
+  opacity: 0.7;
 }
 .engine {
   display: inline-flex;

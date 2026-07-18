@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import type { RunRecord, RunResult } from "@/lib/types";
+import type { RunRecord, RunResult, SolutionFile } from "@/lib/types";
 import { getRunner } from "@/lib/pyodide/runner";
 import styles from "./DebugPane.module.css";
 
@@ -35,37 +35,51 @@ const FORGE_THEME = {
   },
 };
 
+function languageFor(path: string): string {
+  if (path.endsWith(".py")) return "python";
+  if (path.endsWith(".md")) return "markdown";
+  if (path.endsWith(".json")) return "json";
+  if (path.endsWith(".js") || path.endsWith(".ts")) return "typescript";
+  return "plaintext";
+}
+
+/** Short display name — the filename, with a dimmed directory prefix. */
+function splitPath(path: string): { dir: string; name: string } {
+  const i = path.lastIndexOf("/");
+  return i === -1 ? { dir: "", name: path } : { dir: path.slice(0, i + 1), name: path.slice(i + 1) };
+}
+
 /**
- * Debug work surface (spec §6): Monaco editor + Run + a tests/console panel.
- * Editor-centric. Also owns the small quality-of-life layer: the forge theme,
- * a Python-engine boot indicator, ⌘↵ to run, and the run-history strip that
- * shows iteration progress (which also feeds approach grading).
+ * Debug work surface (spec §6): a multi-file project (file tabs + Monaco) + Run
+ * + a tests/console panel. Editor-centric. Real problems span a package, so the
+ * user navigates files; read-only files (fixtures/neighbours) are marked. Owns
+ * the QoL layer: forge theme, Python-engine boot indicator, ⌘↵ run, run-history.
  */
 export function DebugPane({
-  code,
-  onCodeChange,
+  files,
+  activePath,
+  onSelectFile,
+  onFileChange,
   onRun,
   running,
   result,
   runs,
-  filename = "solution.py",
 }: {
-  code: string;
-  onCodeChange: (value: string) => void;
+  files: SolutionFile[];
+  activePath: string;
+  onSelectFile: (path: string) => void;
+  onFileChange: (path: string, content: string) => void;
   onRun: () => void;
   running: boolean;
   result: RunResult | null;
   runs: RunRecord[];
-  filename?: string;
 }) {
   const [tab, setTab] = useState<"tests" | "console">("tests");
   const [engineReady, setEngineReady] = useState(false);
 
-  // Keep a live ref so the Monaco keybinding always triggers the latest run.
   const runRef = useRef(onRun);
   runRef.current = onRun;
 
-  // Warm Pyodide as soon as the pane mounts; flip the chip when it's hot.
   useEffect(() => {
     let alive = true;
     getRunner()
@@ -77,15 +91,32 @@ export function DebugPane({
     };
   }, []);
 
+  const active = files.find((f) => f.path === activePath) ?? files[0];
+
   return (
     <div className={styles.pane}>
       <div className={styles.edtop}>
-        <span className={styles.filetab}>{filename}</span>
+        <div className={styles.tabs}>
+          {files.map((f) => {
+            const { dir, name } = splitPath(f.path);
+            return (
+              <button
+                key={f.path}
+                className={`${styles.filetab} ${f.path === active?.path ? styles.filetabOn : ""}`}
+                onClick={() => onSelectFile(f.path)}
+                title={f.path + (f.readOnly ? " (read-only)" : "")}
+              >
+                {dir && <span className={styles.filedir}>{dir}</span>}
+                {name}
+                {f.readOnly && <span className={styles.lock}>🔒</span>}
+              </button>
+            );
+          })}
+        </div>
         <span className={styles.engine} title="Python runs entirely in your browser (Pyodide/WebAssembly) — nothing is sent to a server">
           <span className={`${styles.engineDot} ${engineReady ? styles.ready : ""}`} />
           {engineReady ? "python ready · in-browser" : "warming python engine…"}
         </span>
-        <div className={styles.grow} />
         <span className={styles.kbd}>⌘↵</span>
         <button className={`${styles.run} ${running ? styles.running : ""}`} onClick={onRun} disabled={running}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
@@ -98,15 +129,15 @@ export function DebugPane({
       <div className={styles.editor}>
         <MonacoEditor
           height="100%"
-          language="python"
+          path={active?.path}
+          language={active ? languageFor(active.path) : "python"}
           theme="anvil-forge"
-          value={code}
-          onChange={(v) => onCodeChange(v ?? "")}
+          value={active?.content ?? ""}
+          onChange={(v) => active && onFileChange(active.path, v ?? "")}
           beforeMount={(monaco) => {
             monaco.editor.defineTheme("anvil-forge", FORGE_THEME);
           }}
           onMount={(editor, monaco) => {
-            // ⌘/Ctrl+Enter runs the suite without leaving the keyboard.
             editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => runRef.current());
           }}
           options={{
@@ -117,6 +148,7 @@ export function DebugPane({
             scrollBeyondLastLine: false,
             padding: { top: 12 },
             tabSize: 4,
+            readOnly: active?.readOnly ?? false,
             renderLineHighlight: "all",
             smoothScrolling: true,
             cursorBlinking: "smooth",
