@@ -140,7 +140,7 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
           </div>
           {generating && (
             <p className={styles.genNote}>
-              Writing a fresh {type === "any" ? "" : type + " "}problem tailored to your JD, then running its self-check — this takes ~20–40s.
+              Writing a fresh {type === "any" ? "" : type + " "}problem tailored to your JD, then executing it to verify the bug is real — this takes a minute or two.
             </p>
           )}
           {genError && <p className={styles.genError}>{genError}</p>}

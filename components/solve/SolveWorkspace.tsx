@@ -299,7 +299,12 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
                 files={files}
                 activePath={activePath}
                 onSelectFile={setActivePath}
-                onFileChange={(path, content) => setFiles((prev) => prev.map((f) => (f.path === path ? { ...f, content } : f)))}
+                onFileChange={(path, content) => {
+                  setFiles((prev) => prev.map((f) => (f.path === path ? { ...f, content } : f)));
+                  // Edits invalidate the last run — reset the "all green" signal so
+                  // NextStep/Tests don't show a stale pass after the code changed.
+                  if (runResult) setRunResult(null);
+                }}
                 onRun={runCode}
                 running={running}
                 result={runResult}
