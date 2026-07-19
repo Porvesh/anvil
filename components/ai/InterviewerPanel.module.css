@@ -154,6 +154,39 @@
   outline: none;
   border-color: var(--blue-deep);
 }
+.voicebtn {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: var(--iron);
+  border: 1px solid var(--edge);
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  flex: none;
+  transition: 0.12s;
+}
+.voicebtn:hover {
+  border-color: var(--steel-dim);
+}
+.voicebtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.voiceOn {
+  border-color: var(--blue);
+  background: rgba(90, 166, 230, 0.12);
+}
+.listening {
+  border-color: var(--spark);
+  background: var(--spark-glow);
+  animation: micpulse 1s ease-in-out infinite;
+}
+@keyframes micpulse {
+  50% {
+    box-shadow: 0 0 0 4px var(--spark-glow);
+  }
+}
 .send {
   width: 38px;
   height: 38px;
