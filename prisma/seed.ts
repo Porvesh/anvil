@@ -146,18 +146,38 @@ const debugTokenBucket: SeedProblem = {
   title: "Rate limiter lets huge bursts through after idle periods",
   prompt:
     "Two symptoms from prod: (1) after a quiet night, a single client burned through hundreds of requests in one burst even though capacity is 5; (2) a fresh bucket denies the very last token it should grant — clients report being limited one request early. The clock is injected, so everything is deterministic. Make the suite green.",
-  starterCode: `class TokenBucket:
+  files: [
+    F("ratelimit/__init__.py", `from .bucket import TokenBucket\n`),
+    F(
+      "ratelimit/clock.py",
+      `"""Default wall-clock source (do not edit)."""
+import time
+
+
+def monotonic() -> float:
+    """Seconds from a monotonic source; injected clocks override this in tests."""
+    return time.monotonic()
+`,
+      true,
+    ),
+    F(
+      "ratelimit/bucket.py",
+      `from .clock import monotonic
+
+
+class TokenBucket:
     """Allows \`rate\` requests/second with bursts up to \`capacity\`.
 
-    \`clock\` is injected for testability (returns seconds as a float).
+    \`clock\` is injected for testability (returns seconds as a float); it
+    defaults to the real monotonic clock in production.
     """
 
-    def __init__(self, rate, capacity, clock):
+    def __init__(self, rate, capacity, clock=None):
         self.rate = rate
         self.capacity = capacity
-        self.clock = clock
+        self.clock = clock or monotonic
         self.tokens = capacity
-        self.last_refill = clock()
+        self.last_refill = self.clock()
 
     def _refill(self):
         now = self.clock()
@@ -171,9 +191,14 @@ const debugTokenBucket: SeedProblem = {
         if self.tokens > 1:
             self.tokens -= 1
             return True
-        return False`,
+        return False
+`,
+    ),
+  ],
   testSuite: {
-    setup: `def make(rate=1, capacity=5):
+    setup: `from ratelimit import TokenBucket
+
+def make(rate=1, capacity=5):
     t = {"now": 0.0}
     def clock():
         return t["now"]
@@ -202,8 +227,9 @@ const debugTokenBucket: SeedProblem = {
   answerKey: [
     {
       id: "refill-uncapped",
-      lineStart: 17,
-      lineEnd: 17,
+      file: "ratelimit/bucket.py",
+      lineStart: 19,
+      lineEnd: 19,
       severity: "critical",
       failure:
         "Refill accumulates without capping at capacity, so after an idle period the bucket holds far more than `capacity` tokens and a client can burst way past the limit.",
@@ -213,8 +239,9 @@ const debugTokenBucket: SeedProblem = {
     },
     {
       id: "allow-off-by-one",
-      lineStart: 23,
-      lineEnd: 23,
+      file: "ratelimit/bucket.py",
+      lineStart: 27,
+      lineEnd: 27,
       severity: "major",
       failure: "`if self.tokens > 1` refuses to spend the final token — every bucket effectively has capacity−1.",
       explanation: "Spending one token requires `tokens >= 1`, not `> 1`. The strict comparison strands the last token forever.",
@@ -229,10 +256,25 @@ const debugLruCache: SeedProblem = {
   title: "LRU cache evicts the entry you just used",
   prompt:
     "Cache hit-rate collapsed after a refactor. Traces show hot keys being evicted moments after they were read, while entries nobody has touched in hours stay resident. Two distinct things are wrong with the recency bookkeeping. Make the suite green.",
-  starterCode: `class LRUCache:
+  files: [
+    F("cache/__init__.py", `from .lru import LRUCache\n`),
+    F(
+      "cache/policy.py",
+      `"""Cache sizing policy (do not edit)."""
+
+DEFAULT_CAPACITY = 128
+`,
+      true,
+    ),
+    F(
+      "cache/lru.py",
+      `from .policy import DEFAULT_CAPACITY
+
+
+class LRUCache:
     """Fixed-capacity cache that evicts the least-recently-used entry."""
 
-    def __init__(self, capacity):
+    def __init__(self, capacity=DEFAULT_CAPACITY):
         self.capacity = capacity
         self.store = {}
         self.order = []  # least-recently-used first
@@ -252,8 +294,12 @@ const debugLruCache: SeedProblem = {
             evicted = self.order.pop()
             del self.store[evicted]
         self.store[key] = value
-        self.order.append(key)`,
+        self.order.append(key)
+`,
+    ),
+  ],
   testSuite: {
+    setup: `from cache import LRUCache`,
     cases: [
       {
         name: "test_basic_roundtrip",
@@ -276,8 +322,9 @@ const debugLruCache: SeedProblem = {
   answerKey: [
     {
       id: "get-no-refresh",
-      lineStart: 12,
-      lineEnd: 12,
+      file: "cache/lru.py",
+      lineStart: 14,
+      lineEnd: 14,
       severity: "major",
       failure: "get() returns the value without refreshing recency, so hot keys look stale and get evicted while cold keys survive.",
       explanation:
@@ -286,8 +333,9 @@ const debugLruCache: SeedProblem = {
     },
     {
       id: "evict-wrong-end",
-      lineStart: 21,
-      lineEnd: 21,
+      file: "cache/lru.py",
+      lineStart: 23,
+      lineEnd: 23,
       severity: "major",
       failure: "`self.order.pop()` removes the MOST-recently-used key — eviction targets exactly the wrong end of the list.",
       explanation:
@@ -303,15 +351,38 @@ const debugInvoice: SeedProblem = {
   title: "Invoice totals ignore line-item quantities",
   prompt:
     "Finance flagged that multi-quantity orders are being under-billed: an order of 3 × $2.50 invoices at $2.50. Single-item orders and the discount math look right in spot checks. All amounts are integer cents. Make the suite green.",
-  starterCode: `def invoice_total(items, discount_pct=0):
-    """Total (in cents) for a list of {'price': cents, 'qty': int} line items,
-    with an optional whole-order percentage discount applied at the end."""
+  files: [
+    F("billing/__init__.py", `from .invoice import invoice_total\n`),
+    F(
+      "billing/models.py",
+      `"""Line-item schema (do not edit)."""
+from typing import TypedDict
+
+
+class LineItem(TypedDict):
+    price: int  # unit price in integer cents
+    qty: int
+`,
+      true,
+    ),
+    F(
+      "billing/invoice.py",
+      `from .models import LineItem
+
+
+def invoice_total(items: list[LineItem], discount_pct: int = 0) -> int:
+    """Total (in cents) for a list of line items, with an optional whole-order
+    percentage discount applied at the end."""
     subtotal = 0
     for item in items:
         subtotal += item["price"]
     discounted = subtotal - subtotal * discount_pct / 100
-    return round(discounted)`,
+    return round(discounted)
+`,
+    ),
+  ],
   testSuite: {
+    setup: `from billing import invoice_total`,
     cases: [
       { name: "test_empty_invoice", body: `assert invoice_total([]) == 0` },
       {
@@ -331,8 +402,9 @@ const debugInvoice: SeedProblem = {
   answerKey: [
     {
       id: "qty-ignored",
-      lineStart: 6,
-      lineEnd: 6,
+      file: "billing/invoice.py",
+      lineStart: 9,
+      lineEnd: 9,
       severity: "major",
       failure: "The subtotal adds each line's unit price once, ignoring `qty` — every multi-quantity line is under-billed.",
       explanation: "The accumulation must be `subtotal += item[\"price\"] * item[\"qty\"]`. As written, quantity is read from the schema but never used.",
@@ -347,7 +419,23 @@ const debugRetry: SeedProblem = {
   title: "Retry helper swallows real bugs and returns None",
   prompt:
     "Two incidents traced back to this helper: a typo (`ValueError`) in a caller got retried three times before vanishing — the on-call saw nothing; and when a downstream stayed hard-down, callers received `None` instead of an exception and happily wrote `None` into the database. The docstring says exactly what it should do. Make the suite green.",
-  starterCode: `def with_retry(fn, attempts=3, retry_on=(ConnectionError, TimeoutError)):
+  files: [
+    F("resilience/__init__.py", `from .retry import with_retry\n`),
+    F(
+      "resilience/errors.py",
+      `"""Which failures are considered transient (do not edit)."""
+
+# Network-ish failures worth retrying; everything else is a caller bug.
+TRANSIENT = (ConnectionError, TimeoutError)
+`,
+      true,
+    ),
+    F(
+      "resilience/retry.py",
+      `from .errors import TRANSIENT
+
+
+def with_retry(fn, attempts=3, retry_on=TRANSIENT):
     """Call \`fn\`, retrying transient failures up to \`attempts\` times.
 
     Only exceptions in \`retry_on\` are transient; anything else is a bug in the
@@ -360,9 +448,14 @@ const debugRetry: SeedProblem = {
             return fn()
         except Exception as exc:
             last_exc = exc
-    return None`,
+    return None
+`,
+    ),
+  ],
   testSuite: {
-    setup: `def flaky(fail_times, exc_type=ConnectionError):
+    setup: `from resilience import with_retry
+
+def flaky(fail_times, exc_type=ConnectionError):
     state = {"calls": 0}
     def fn():
         state["calls"] += 1
@@ -390,8 +483,9 @@ const debugRetry: SeedProblem = {
   answerKey: [
     {
       id: "broad-except",
-      lineStart: 12,
-      lineEnd: 12,
+      file: "resilience/retry.py",
+      lineStart: 16,
+      lineEnd: 16,
       severity: "major",
       failure: "`except Exception` retries every error type — programmer errors like ValueError get retried and hidden instead of propagating immediately.",
       explanation: "The handler must catch only the transient classes: `except retry_on as exc:`. The `retry_on` parameter exists precisely for this and is currently ignored.",
@@ -399,8 +493,9 @@ const debugRetry: SeedProblem = {
     },
     {
       id: "silent-none",
-      lineStart: 14,
-      lineEnd: 14,
+      file: "resilience/retry.py",
+      lineStart: 18,
+      lineEnd: 18,
       severity: "critical",
       failure: "After exhausting attempts the helper returns None, so hard failures masquerade as a successful call returning None — corrupting callers' data.",
       explanation: "Exhaustion must re-raise the captured error: `raise last_exc`. A retry wrapper may delay an error; it must never convert one into a value.",
@@ -415,14 +510,33 @@ const debugPayments: SeedProblem = {
   title: "Payment processor double-charges on webhook replay",
   prompt:
     "A customer was charged twice for one order. The provider's docs say delivery is at-least-once: the same event WILL occasionally arrive twice, and a delivery attempt can also die mid-flight and be redelivered. There's a `processed` set in the code, so someone thought about this — but chargebacks say otherwise. There are two distinct flaws in how idempotency is handled. Make the suite green.",
-  starterCode: `class PaymentProcessor:
+  files: [
+    F("payments/__init__.py", `from .processor import PaymentProcessor\n`),
+    F(
+      "payments/gateway.py",
+      `"""Payment gateway interface (do not edit — this is the contract)."""
+
+
+class Gateway:
+    def charge(self, customer, amount):
+        """Move money. Raises on transient failure; the caller must retry safely."""
+        raise NotImplementedError
+`,
+      true,
+    ),
+    F(
+      "payments/processor.py",
+      `from .gateway import Gateway
+
+
+class PaymentProcessor:
     """Applies \`charge\` webhooks from the payment provider to the gateway.
 
     Delivery is at-least-once: the same event may arrive multiple times
     (replays, provider retries), and a delivery attempt can fail midway.
     """
 
-    def __init__(self, gateway):
+    def __init__(self, gateway: Gateway):
         self.gateway = gateway
         self.processed = set()
 
@@ -432,9 +546,15 @@ const debugPayments: SeedProblem = {
             return "ignored"
         self.processed.add(eid)
         result = self.gateway.charge(event["customer"], event["amount"])
-        return result`,
+        return result
+`,
+    ),
+  ],
   testSuite: {
-    setup: `class FakeGateway:
+    setup: `from payments import PaymentProcessor
+from payments.gateway import Gateway
+
+class FakeGateway(Gateway):
     def __init__(self, fail_first=0):
         self.charges = []
         self.fail_remaining = fail_first
@@ -469,8 +589,9 @@ def charge_event(eid, amount=1000):
   answerKey: [
     {
       id: "no-replay-guard",
-      lineStart: 13,
-      lineEnd: 17,
+      file: "payments/processor.py",
+      lineStart: 17,
+      lineEnd: 21,
       severity: "critical",
       failure: "`processed` is written but never READ — replays sail straight through to the gateway and the customer is charged once per delivery.",
       explanation:
@@ -479,8 +600,9 @@ def charge_event(eid, amount=1000):
     },
     {
       id: "mark-before-charge",
-      lineStart: 16,
-      lineEnd: 16,
+      file: "payments/processor.py",
+      lineStart: 20,
+      lineEnd: 20,
       severity: "major",
       failure:
         "The event is marked processed BEFORE the charge attempt — if the gateway call fails, the event is permanently 'processed' and the redelivery will be skipped: the customer is never charged at all.",
