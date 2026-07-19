@@ -294,7 +294,7 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
             <Results grade={grade} mode={mode} problemId={problem.id} problemType={problem.type} onReview={() => setPhase("solve")} />
           ) : isDebug ? (
             <>
-              <ProblemBrief type="debug" difficulty={problem.difficulty} prompt={problem.prompt} issueCount={problem.answerKeyCount} />
+              <ProblemBrief type="debug" difficulty={problem.difficulty} prompt={problem.prompt} />
               <DebugPane
                 files={files}
                 activePath={activePath}
@@ -317,14 +317,13 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
               prompt={problem.prompt}
               prMeta={problem.prMeta}
               diff={problem.diff ?? []}
-              issueCount={problem.answerKeyCount}
               comments={comments}
               onAddComment={(line, body) => setComments((c) => [...c, { line, body }])}
               onRemoveComment={(index) => setComments((c) => c.filter((_, i) => i !== index))}
             />
           ) : (
             <>
-              <ProblemBrief type="design" difficulty={problem.difficulty} prompt={problem.prompt} issueCount={problem.answerKeyCount} />
+              <ProblemBrief type="design" difficulty={problem.difficulty} prompt={problem.prompt} />
               <DesignPane doc={code} onDocChange={setCode} />
             </>
           )}

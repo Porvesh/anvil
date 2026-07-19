@@ -15,15 +15,18 @@ const KIND_CLASS: Record<DiffLineKind, string> = {
  * Review work surface (spec §6, §10): a GitHub-style PR diff with inline comment
  * threads. Diff-centric, no editing. Comments anchor to the new-file line number
  * (`lineNo`) — the same coordinate system the answer key uses for grading, so a
- * comment on a buggy line is a "catch". The header shows the seeded-flaw count:
- * the AI planted them, so the answer key is exact — find them all.
+ * comment on a buggy line is a "catch".
+ *
+ * Design note: the seeded-flaw count is intentionally NOT shown — a real PR
+ * doesn't come with a bug-count, and revealing N destroys the precision /
+ * recall trade-off we grade on (users would just drop comments until they
+ * hit N). Count is revealed on the results screen, not here.
  */
 export function ReviewPane({
   title,
   prompt,
   prMeta,
   diff,
-  issueCount,
   comments,
   onAddComment,
   onRemoveComment,
@@ -32,7 +35,6 @@ export function ReviewPane({
   prompt: string;
   prMeta: PrMeta | null;
   diff: DiffHunk[];
-  issueCount: number;
   comments: ReviewComment[];
   onAddComment: (line: number, body: string) => void;
   onRemoveComment: (index: number) => void;
@@ -68,16 +70,11 @@ export function ReviewPane({
         )}
         <div className={styles.desc}>{prompt}</div>
         <div className={styles.progress}>
-          <span className={styles.progressChip}>
-            ⚑ {issueCount} {issueCount === 1 ? "flaw is" : "flaws are"} seeded in this diff
-          </span>
           <span className={styles.progressCount}>
-            {comments.length} {comments.length === 1 ? "comment" : "comments"} so far
+            {comments.length} {comments.length === 1 ? "comment" : "comments"} left
           </span>
         </div>
-        <div className={styles.guidance}>
-          Click any line to comment. Precision counts: unfounded nits cost points, so only flag what you'd block a real PR over.
-        </div>
+        <div className={styles.guidance}>Click any line to comment. Review it like you'd review a teammate's PR.</div>
       </div>
 
       {diff.map((hunk) => (
