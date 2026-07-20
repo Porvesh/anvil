@@ -141,26 +141,38 @@ export function Results({
         </div>
 
         <div className={styles.formula}>
-          <span className={styles.formulaLabel}>How this was scored</span>
-          <span className={styles.formulaText}>
-            {mode === "review" ? (
-              <>
-                The flaws were seeded, so grading is a match against ground truth: <code>caught / {grade.outcomes.length} seeded</code> sets
-                the base, and each confirmed false positive costs <code>−12</code> — precision matters as much as recall in a real review.
-              </>
-            ) : mode === "design" ? (
-              <>
-                <code>70%</code> rubric coverage — how many of the {grade.outcomes.length} dimensions a strong design must address you
-                actually addressed — plus <code>30%</code> depth: capacity math shown, trade-offs argued (not just named), failure modes
-                reasoned through.
-              </>
-            ) : (
-              <>
-                <code>55%</code> objective — does the test suite go green — plus <code>45%</code> approach quality: root-cause fix vs.
-                symptom-masking, judged against the seeded answer key, with your run history as the iteration signal.
-              </>
-            )}
-          </span>
+          <div className={styles.formulaLabel}>How this was scored</div>
+          <div className={styles.breakdown}>
+            {grade.breakdown.map((line) => {
+              const negative = line.earned < 0;
+              return (
+                <div key={line.label} className={`${styles.brline} ${negative ? styles.brNeg : ""}`}>
+                  <span className={styles.brLabel}>
+                    {line.label}
+                    {line.detail && <span className={styles.brDetail}>{line.detail}</span>}
+                  </span>
+                  <span className={styles.brBar}>
+                    <span
+                      className={`${styles.brBarFill} ${negative ? styles.brBarFillNeg : ""}`}
+                      style={{ width: `${line.max > 0 ? Math.min(100, (Math.abs(line.earned) / line.max) * 100) : 0}%` }}
+                    />
+                  </span>
+                  <span className={styles.brScore}>
+                    {line.earned >= 0 ? line.earned : `−${Math.abs(line.earned)}`}
+                    {line.max > 0 && <small>/{line.max}</small>}
+                  </span>
+                </div>
+              );
+            })}
+            <div className={`${styles.brline} ${styles.brTotal}`}>
+              <span className={styles.brLabel}>Total</span>
+              <span className={styles.brBar} aria-hidden />
+              <span className={styles.brScore}>
+                {grade.score}
+                <small>/100</small>
+              </span>
+            </div>
+          </div>
         </div>
 
         <ProblemRating problemId={problemId} />

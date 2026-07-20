@@ -173,10 +173,6 @@
   border-radius: var(--r);
   padding: 14px 18px;
   margin-top: 16px;
-  display: flex;
-  align-items: baseline;
-  gap: 14px;
-  flex-wrap: wrap;
 }
 .formulaLabel {
   font-family: var(--mono);
@@ -184,19 +180,76 @@
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--steel-dim);
-  white-space: nowrap;
+  margin-bottom: 10px;
 }
-.formulaText {
+.breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.brline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px 72px;
+  align-items: center;
+  gap: 12px;
   font-size: 13px;
   color: var(--steel);
 }
-.formulaText code {
+.brLabel {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.brDetail {
   font-family: var(--mono);
-  font-size: 12px;
-  color: var(--parchment-dim);
+  font-size: 11px;
+  color: var(--steel-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.brBar {
+  height: 6px;
   background: var(--iron);
-  padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.brBarFill {
+  display: block;
+  height: 100%;
+  background: var(--spark);
+  border-radius: 3px;
+}
+.brBarFillNeg {
+  background: #e5615e;
+}
+.brScore {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--parchment);
+  text-align: right;
+  white-space: nowrap;
+}
+.brScore small {
+  color: var(--steel-dim);
+  font-size: 11px;
+  margin-left: 1px;
+}
+.brNeg .brScore {
+  color: #e5615e;
+}
+.brTotal {
+  border-top: 1px solid var(--edge-soft);
+  padding-top: 8px;
+  margin-top: 4px;
+}
+.brTotal .brLabel {
+  font-weight: 600;
+  color: var(--parchment);
+}
+.brTotal .brScore {
+  font-weight: 600;
 }
 .actions {
   display: flex;

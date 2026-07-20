@@ -11,6 +11,7 @@ import type {
   Problem,
   ReviewComment,
   RunRecord,
+  ScoreLine,
   SolutionFile,
 } from "../types";
 import { matchReviewComments } from "./matcher";
@@ -67,7 +68,26 @@ export async function gradeReview(
 
   const total = problem.answerKey.length || 1;
   const recall = caught.length / total;
-  const score = clampScore(recall * 100 - falsePositives.length * FALSE_POSITIVE_PENALTY);
+  const caughtPoints = Math.round(recall * 100);
+  const fpPenalty = falsePositives.length * FALSE_POSITIVE_PENALTY;
+  const score = clampScore(caughtPoints - fpPenalty);
+
+  const breakdown: ScoreLine[] = [
+    {
+      label: "Issues caught",
+      earned: caughtPoints,
+      max: 100,
+      detail: `${caught.length}/${problem.answerKey.length} seeded`,
+    },
+  ];
+  if (falsePositives.length > 0) {
+    breakdown.push({
+      label: "False positives",
+      earned: -fpPenalty,
+      max: 0,
+      detail: `${falsePositives.length} × −${FALSE_POSITIVE_PENALTY}`,
+    });
+  }
 
   return {
     score,
@@ -75,6 +95,7 @@ export async function gradeReview(
     summary: judgment.summary,
     outcomes,
     falsePositives,
+    breakdown,
   };
 }
 
@@ -103,9 +124,27 @@ export async function gradeDesign(problem: Problem, doc: string): Promise<Grade>
   });
 
   const total = problem.answerKey.length || 1;
-  const coverage = (outcomes.filter((o) => o.status === "caught").length / total) * 100;
+  const caughtCount = outcomes.filter((o) => o.status === "caught").length;
+  const coverage = (caughtCount / total) * 100;
   const depth = Math.max(0, Math.min(100, judgment.depthScore));
-  const score = clampScore(coverage * COVERAGE_WEIGHT + depth * DEPTH_WEIGHT);
+  const coverageEarned = Math.round(coverage * COVERAGE_WEIGHT);
+  const depthEarned = Math.round(depth * DEPTH_WEIGHT);
+  const score = clampScore(coverageEarned + depthEarned);
+
+  const breakdown: ScoreLine[] = [
+    {
+      label: "Rubric coverage",
+      earned: coverageEarned,
+      max: Math.round(100 * COVERAGE_WEIGHT),
+      detail: `${caughtCount}/${problem.answerKey.length} dimensions`,
+    },
+    {
+      label: "Depth",
+      earned: depthEarned,
+      max: Math.round(100 * DEPTH_WEIGHT),
+      detail: "capacity math, trade-offs, failure modes",
+    },
+  ];
 
   return {
     score,
@@ -113,6 +152,7 @@ export async function gradeDesign(problem: Problem, doc: string): Promise<Grade>
     summary: judgment.summary,
     outcomes,
     falsePositives: [],
+    breakdown,
   };
 }
 
@@ -146,7 +186,24 @@ export async function gradeDebug(
   });
 
   const objective = testsPassed ? 100 : 0;
-  const score = clampScore(objective * OBJECTIVE_WEIGHT + judgment.approachScore * APPROACH_WEIGHT);
+  const objectiveEarned = Math.round(objective * OBJECTIVE_WEIGHT);
+  const approachEarned = Math.round(judgment.approachScore * APPROACH_WEIGHT);
+  const score = clampScore(objectiveEarned + approachEarned);
+
+  const breakdown: ScoreLine[] = [
+    {
+      label: "Tests pass",
+      earned: objectiveEarned,
+      max: Math.round(100 * OBJECTIVE_WEIGHT),
+      detail: testsPassed ? "all green" : "still failing",
+    },
+    {
+      label: "Approach quality",
+      earned: approachEarned,
+      max: Math.round(100 * APPROACH_WEIGHT),
+      detail: "root-cause vs. symptom-masking",
+    },
+  ];
 
   return {
     score,
@@ -154,6 +211,7 @@ export async function gradeDebug(
     summary: judgment.summary,
     outcomes,
     falsePositives: [],
+    breakdown,
     testsPassed,
   };
 }
