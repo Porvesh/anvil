@@ -9,7 +9,6 @@ import { DebugPane } from "./DebugPane";
 import { ReviewPane } from "./ReviewPane";
 import { DesignPane } from "./DesignPane";
 import { ProblemBrief } from "./ProblemBrief";
-import { NextStep } from "./NextStep";
 import { GradingOverlay } from "./GradingOverlay";
 import { InterviewerPanel } from "@/components/ai/InterviewerPanel";
 import { Results } from "@/components/results/Results";
@@ -37,13 +36,14 @@ const SOLVE_SUGGESTIONS: Record<"debug" | "review" | "design", string[]> = {
 };
 const RESULTS_SUGGESTIONS = ["Walk me through what I missed", "How would I catch this next time?"];
 
+// Greetings deliberately set the *mode* ("here's how we interact") without
+// previewing the failure mode or the rubric. Telling the user "the PR
+// description is the trap" or "nits cost points" biases them before they've
+// even read the problem — that's spoiling the problem in sentence one.
 const GREETINGS: Record<"debug" | "review" | "design", string> = {
-  debug:
-    "Read the bug report above, then trace the code before changing anything. Run early, run often — the failing tests are your map. Ping me for a nudge.",
-  review:
-    "Read the PR like you'd review a teammate's — the description sounds reasonable, which is exactly the trap. Click a line to comment. I'm here if you want a nudge.",
-  design:
-    "Treat me as the interviewer in the room: state your assumptions, do the capacity math out loud, and argue trade-offs in the doc. Ask me to poke holes whenever you want pressure.",
+  debug: "I'm here if you want a nudge — not the answer. Otherwise I'll stay quiet while you work.",
+  review: "Comment on any line as you go. Ping me if you want to think out loud.",
+  design: "I'll play the interviewer. Draft in the doc; ask me to pressure-test whenever you want.",
 };
 
 /**
@@ -280,16 +280,6 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
 
       <div className={shell.stage}>
         <div className={shell.center}>
-          {phase === "solve" && (
-            <NextStep
-              mode={problem.type}
-              issueCount={problem.answerKeyCount}
-              runResult={runResult}
-              running={running}
-              commentCount={comments.length}
-              docWords={code.trim() ? code.trim().split(/\s+/).length : 0}
-            />
-          )}
           {phase === "results" && grade ? (
             <Results grade={grade} mode={mode} problemId={problem.id} problemType={problem.type} onReview={() => setPhase("solve")} />
           ) : isDebug ? (
@@ -302,7 +292,7 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
                 onFileChange={(path, content) => {
                   setFiles((prev) => prev.map((f) => (f.path === path ? { ...f, content } : f)));
                   // Edits invalidate the last run — reset the "all green" signal so
-                  // NextStep/Tests don't show a stale pass after the code changed.
+                  // the Tests panel doesn't show a stale pass after the code changed.
                   if (runResult) setRunResult(null);
                 }}
                 onRun={runCode}
