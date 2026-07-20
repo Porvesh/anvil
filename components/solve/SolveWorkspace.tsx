@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { ChatMessage, Grade, PublicProblem, ReviewComment, RunRecord, RunResult, SolutionFile } from "@/lib/types";
 import { getRunner } from "@/lib/pyodide/runner";
 import { getSessionId } from "@/lib/session";
@@ -15,12 +15,6 @@ import { Results } from "@/components/results/Results";
 import shell from "./Solve.module.css";
 
 type Phase = "solve" | "results";
-
-function mmss(totalSeconds: number): string {
-  const m = Math.floor(totalSeconds / 60);
-  const s = totalSeconds % 60;
-  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-}
 
 /** Flatten the review diff to text for the hint model's context. */
 function diffToText(problem: PublicProblem): string {
@@ -82,16 +76,14 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
   const [chat, setChat] = useState<ChatMessage[]>([{ role: "interviewer", content: GREETINGS[mode] }]);
   const [aiBusy, setAiBusy] = useState(false);
 
-  // --- timer (paused while the results screen is up) ---
-  const [elapsed, setElapsed] = useState(0);
-  useEffect(() => {
-    if (phase !== "solve") return;
-    const id = setInterval(() => setElapsed((e) => e + 1), 1000);
-    return () => clearInterval(id);
-  }, [phase]);
-
-  const elapsedRef = useRef(elapsed);
-  elapsedRef.current = elapsed;
+  // Solve started at (monotonic) — used to timestamp runs for approach
+  // grading. We no longer render a live-ticking clock in the top bar: it
+  // was pure pressure with no product signal (didn't feed the grade, was
+  // hidden on the results screen) and works against the 'we train
+  // judgment, not speed' thesis. If we want timing later, it should show
+  // up on results (post-facto), not as a stressor in the chrome.
+  const startedAt = useRef(Date.now());
+  const readElapsed = () => Math.floor((Date.now() - startedAt.current) / 1000);
 
   // --- run code (debug) ---
   const runCode = useCallback(async () => {
@@ -105,7 +97,7 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
         passed: result.tests.filter((t) => t.passed).length,
         failed: result.tests.filter((t) => !t.passed).length + (result.error || result.timedOut ? 1 : 0),
         output: result.output,
-        at: elapsedRef.current,
+        at: readElapsed(),
       },
     ]);
     setRunning(false);
@@ -237,13 +229,8 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
   return (
     <div className={shell.solve}>
       <div className={shell.subbar}>
-        <span className={shell.crumb}>
-          Practice / <b>{crumbType}</b>
-        </span>
+        <span className={shell.crumb}>{crumbType}</span>
         <span className={shell.title}>{problem.title}</span>
-        <span className={shell.timer}>
-          <span className={shell.dot} /> {mmss(elapsed)}
-        </span>
         <div className={shell.grow} />
         {phase === "solve" && (
           <>
