@@ -127,9 +127,19 @@ export interface Problem {
   retired: boolean;
 }
 
-/** The problem as sent to the browser while solving — the answer key is stripped
- *  so it never leaves the server (grading happens server-side). */
-export type PublicProblem = Omit<Problem, "answerKey"> & { answerKeyCount: number };
+/**
+ * The problem as sent to the browser while solving.
+ *
+ * Three fields are withheld, and each omission is load-bearing:
+ * - `answerKey` — ground truth; grading happens server-side against it (INV-1).
+ * - the *count* of answer-key entries — telling the user how many flaws were
+ *   planted turns the exercise into a scavenger hunt with a known terminating
+ *   condition, which is not the skill being trained (INV-9).
+ * - `jdContext` — the pasted job description may carry a real company's
+ *   internal role details, and problems are served from a shared bank, so it
+ *   must never reach a client other than its author's (INV-12).
+ */
+export type PublicProblem = Omit<Problem, "answerKey" | "jdContext">;
 
 /** Compact row for the bank list, with the curation signals the UI shows. */
 export interface ProblemSummary {
