@@ -180,29 +180,70 @@ export async function gradeReview(
 const COVERAGE_WEIGHT = 0.7;
 const DEPTH_WEIGHT = 0.3;
 
-export async function gradeDesign(problem: Problem, doc: string): Promise<Grade> {
-  const judgment = await judgeDesign(problem, doc);
+/** Two judges disagreeing by more than this flags the *rubric*, not the user. */
+const DIVERGENCE_THRESHOLD = 15;
 
+/**
+ * Grade a design doc.
+ *
+ * Design is the only mode with no deterministic layer beneath it — there is no
+ * matcher and no test suite, so the model's read *is* the score. Everywhere
+ * else a bad judgment shifts a number that has an objective floor; here it is
+ * the whole number. So this is the one place worth paying for an ensemble: two
+ * independent judgments, averaged.
+ *
+ * Averaging (rather than requiring agreement) is deliberate. Requiring both
+ * judges to agree an aspect was addressed would bias every design score
+ * downward, punishing the user for the graders' disagreement. Averaging leaves
+ * the expected score unchanged and just reduces its variance, which is the
+ * actual problem.
+ *
+ * The spread between the two is recorded as `judgeDivergence`. A design problem
+ * whose judges routinely disagree has an ambiguous rubric — that is a signal
+ * about the *problem*, and belongs with the curation data rather than in front
+ * of the user.
+ */
+export async function gradeDesign(problem: Problem, doc: string): Promise<Grade> {
+  const [first, second] = await Promise.all([judgeDesign(problem, doc), judgeDesign(problem, doc)]);
+
+  const total = problem.answerKey.length || 1;
+  const addressedCount = (j: typeof first) =>
+    problem.answerKey.filter((issue) => j.aspects.find((a) => a.issueId === issue.id)?.addressed).length;
+
+  const coverage = ((addressedCount(first) + addressedCount(second)) / 2 / total) * 100;
+  const depth = (clampScore(first.depthScore) + clampScore(second.depthScore)) / 2;
+
+  // Per-judge assembled scores, compared only to measure the spread.
+  const assemble = (j: typeof first) =>
+    clampScore((addressedCount(j) / total) * 100 * COVERAGE_WEIGHT + clampScore(j.depthScore) * DEPTH_WEIGHT);
+  const judgeDivergence = Math.abs(assemble(first) - assemble(second));
+
+  // For the results screen, an aspect shows as addressed if either judge found
+  // it — matching the averaged score's generosity rather than contradicting it.
   const outcomes: IssueOutcome[] = problem.answerKey.map<IssueOutcome>((issue) => {
-    const verdict = judgment.aspects.find((a) => a.issueId === issue.id);
-    const addressed = verdict?.addressed ?? false;
+    const a = first.aspects.find((x) => x.issueId === issue.id);
+    const b = second.aspects.find((x) => x.issueId === issue.id);
+    const addressed = Boolean(a?.addressed || b?.addressed);
+    const contested = Boolean(a?.addressed) !== Boolean(b?.addressed);
     return {
       issueId: issue.id,
       status: addressed ? "caught" : "missed",
       severity: issue.severity,
       failure: issue.failure,
       explanation: issue.explanation,
-      matchedOn: addressed ? verdict?.note : undefined,
+      // Prefer the note from whichever judge credited it; mark partial credit
+      // honestly rather than implying both graders were convinced.
+      matchedOn: addressed
+        ? `${(a?.addressed ? a.note : b?.note) ?? ""}${contested ? " (partially addressed)" : ""}`.trim()
+        : undefined,
     };
   });
 
-  const total = problem.answerKey.length || 1;
   const caughtCount = outcomes.filter((o) => o.status === "caught").length;
-  const coverage = (caughtCount / total) * 100;
-  const depth = Math.max(0, Math.min(100, judgment.depthScore));
   const coverageEarned = Math.round(coverage * COVERAGE_WEIGHT);
   const depthEarned = Math.round(depth * DEPTH_WEIGHT);
   const score = clampScore(coverageEarned + depthEarned);
+  const judgment = first;
 
   const breakdown: ScoreLine[] = [
     {
@@ -227,6 +268,8 @@ export async function gradeDesign(problem: Problem, doc: string): Promise<Grade>
     falsePositives: [],
     breakdown,
     graderModel: CALLS.judgeDesign.model,
+    judgeDivergence,
+    rubricAmbiguous: judgeDivergence > DIVERGENCE_THRESHOLD,
   };
 }
 

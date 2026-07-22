@@ -9,7 +9,8 @@
  * harness (write the package to a temp dir, put it on sys.path, import, test).
  */
 import { execFile } from "node:child_process";
-import type { AnswerKeyIssue, DiffHunk, SolutionFile, TestSuite } from "../types";
+import type { AnswerKeyIssue, DiffHunk, Problem, SolutionFile, TestSuite } from "../types";
+import { gradeDesign } from "../grading";
 
 /** Python program mirroring lib/pyodide/harness.ts (multi-file), reading a JSON
  *  payload {files, setup, cases} on stdin. */
@@ -145,6 +146,70 @@ export async function selfCheckReview(problem: {
     ok: true,
     reason: `${exec.reason}; ${anchors.reason}`,
     qualityScore: exec.qualityScore,
+  };
+}
+
+/**
+ * The minimum gap, in points, between a strong and a deliberately weak answer
+ * for a design rubric to count as discriminating.
+ */
+const MIN_SEPARATION = 25;
+
+/**
+ * Verify a generated design problem by checking that its rubric *discriminates*.
+ *
+ * Debug and review prove a flaw is real by executing it. Design has nothing to
+ * execute, and the model owns the whole score, so the failure mode is a rubric
+ * so vague that any fluent answer scores well — the design equivalent of a bug
+ * that doesn't break a test. The gate: grade a strong answer and a plausible-
+ * but-shallow one through the *real* grading path, and require a wide gap. If
+ * the rubric can't separate answers the generator itself wrote to be different,
+ * it certainly can't separate two users.
+ */
+export async function selfCheckDesign(problem: {
+  title: string;
+  prompt: string;
+  rubric: AnswerKeyIssue[];
+  strongAnswer: string;
+  weakAnswer: string;
+}): Promise<SelfCheckResult> {
+  if (problem.rubric.length < 3) {
+    return { ok: false, reason: `rubric has only ${problem.rubric.length} dimensions`, qualityScore: 0 };
+  }
+
+  // Graded through gradeDesign, not a bespoke check, so the gate measures the
+  // scoring users will actually receive — including its ensemble averaging.
+  const asProblem = {
+    title: problem.title,
+    prompt: problem.prompt,
+    answerKey: problem.rubric,
+    type: "design",
+  } as unknown as Problem;
+
+  const [strong, weak] = await Promise.all([
+    gradeDesign(asProblem, problem.strongAnswer),
+    gradeDesign(asProblem, problem.weakAnswer),
+  ]);
+
+  const separation = strong.score - weak.score;
+  if (separation < MIN_SEPARATION) {
+    return {
+      ok: false,
+      reason: `rubric does not discriminate: strong ${strong.score} vs weak ${weak.score} (gap ${separation}, need ${MIN_SEPARATION})`,
+      qualityScore: Math.max(0, separation / 100),
+    };
+  }
+  if (strong.score < 70) {
+    // If the reference answer can't clear the bar, the rubric is asking for
+    // something the brief doesn't support and every real user will fail it.
+    return { ok: false, reason: `strong reference answer only scored ${strong.score}`, qualityScore: 0.3 };
+  }
+
+  return {
+    ok: true,
+    reason: `rubric discriminates: strong ${strong.score} vs weak ${weak.score} (gap ${separation})`,
+    // Wider separation is a better rubric, saturating at a 60-point gap.
+    qualityScore: Math.min(1, separation / 60),
   };
 }
 

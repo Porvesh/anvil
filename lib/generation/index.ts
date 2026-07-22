@@ -7,14 +7,14 @@
  * can't enter the bank. Only problems that pass persist.
  */
 import type { PrismaClient } from "@prisma/client";
-import type { Difficulty, ProblemType } from "../types";
+import type { AnswerKeyIssue, Difficulty, ProblemType } from "../types";
 import { CALLS } from "../anthropic/models";
 import { parseTags } from "../tags";
-import { GenerationRefusedError, generateDebug, generateReview } from "./generate";
-import { selfCheckDebug, selfCheckReview } from "./selfcheck";
+import { GenerationRefusedError, generateDebug, generateDesign, generateReview } from "./generate";
+import { selfCheckDebug, selfCheckDesign, selfCheckReview } from "./selfcheck";
 
 export interface GenerateOpts {
-  type: Extract<ProblemType, "debug" | "review">;
+  type: ProblemType;
   difficulty: Difficulty;
   topic?: string;
   jd?: string;
@@ -85,6 +85,37 @@ export async function generateAndPersist(prisma: PrismaClient, opts: GenerateOpt
             files: files as object,
             testSuite: suite as object,
             answerKey: p.answerKey as unknown as object,
+            qualityScore: check.qualityScore,
+            source: "generated",
+            generatorModel: model,
+            sourceJobId: jobId ?? null,
+            tags: parseTags(p.tags),
+          },
+          select: { id: true, title: true },
+        });
+        return { ...row, qualityScore: check.qualityScore, attempts: attempt, generatorModel: model };
+      }
+
+      if (type === "design") {
+        const p = await generateDesign(difficulty, topic, jd, model);
+        const check = await selfCheckDesign({ ...p, rubric: p.rubric as AnswerKeyIssue[] });
+        if (!check.ok) {
+          note(`attempt ${attempt}: rejected — ${check.reason}`);
+          continue;
+        }
+        const row = await prisma.problem.create({
+          data: {
+            type: "design",
+            language: "python",
+            difficulty,
+            title: p.title,
+            prompt: p.prompt,
+            jdContext: jd ?? null,
+            // The rubric doubles as the answer key: design's "seeded issues" are
+            // the dimensions a strong answer must engage with. The sample
+            // answers are a generation-time gate only — persisting strongAnswer
+            // would be persisting the model solution.
+            answerKey: p.rubric as unknown as object,
             qualityScore: check.qualityScore,
             source: "generated",
             generatorModel: model,
