@@ -33,6 +33,20 @@ export interface AnswerKeyIssue {
   /** 1-based inclusive line range in the starter code / diff the issue lives on. */
   lineStart: number;
   lineEnd: number;
+  /**
+   * Other lines where a legitimate comment about this flaw may land (B4).
+   *
+   * The defect's line is not always where a reviewer talks about it. Missing
+   * idempotency, a missing lock, an unbounded retry — the strongest reviewers
+   * flag these at the *conceptual* site (the function signature, the `with`
+   * block header, the top of the handler), which is often 5–15 lines from the
+   * line that technically contains the bug. Without anchors those reviews score
+   * as misses, so recall is biased against exactly the users worth keeping.
+   *
+   * Anchors are keyword-gated like the ±1 window: landing on an anchor only
+   * counts if the comment text actually talks about the issue.
+   */
+  anchors?: number[];
   severity: Severity;
   /** The concrete failure this flaw causes (what breaks, for whom). */
   failure: string;

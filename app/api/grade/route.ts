@@ -1,18 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { toProblem } from "@/lib/problem";
-import { gradeDebug, gradeDesign, gradeReview } from "@/lib/grading";
+import { SubmissionModeError, gradeSubmission } from "@/lib/grading";
 import { gradeBodySchema } from "@/lib/validation";
 import { clientKey, rateLimit } from "@/lib/ratelimit";
 import type { RunRecord } from "@/lib/types";
 
 export const runtime = "nodejs";
-
-/** Objective signal for debug: the final run went fully green. */
-function testsPassedFrom(runHistory: RunRecord[]): boolean {
-  const last = runHistory.at(-1);
-  return !!last && last.failed === 0 && last.passed > 0;
-}
 
 /**
  * POST /api/grade — grade a submission against the hidden answer key and persist
@@ -35,32 +29,25 @@ export async function POST(req: Request) {
   if (!row) return NextResponse.json({ error: "Problem not found" }, { status: 404 });
   const problem = toProblem(row);
 
-  // Grade + assemble the stored submission shape per mode.
   let grade;
-  let storedSubmission: unknown;
-  let runHistory: RunRecord[] | undefined;
-
-  if (submission.mode === "debug") {
-    if (problem.type !== "debug") {
+  try {
+    grade = await gradeSubmission(problem, submission);
+  } catch (err) {
+    if (err instanceof SubmissionModeError) {
       return NextResponse.json({ error: "Submission mode does not match problem type" }, { status: 400 });
     }
-    const testsPassed = testsPassedFrom(submission.runHistory);
-    grade = await gradeDebug(problem, submission.files, submission.runHistory, testsPassed);
-    storedSubmission = { files: submission.files };
-    runHistory = submission.runHistory;
-  } else if (submission.mode === "review") {
-    if (problem.type !== "review") {
-      return NextResponse.json({ error: "Submission mode does not match problem type" }, { status: 400 });
-    }
-    grade = await gradeReview(problem, submission.comments);
-    storedSubmission = submission.comments;
-  } else {
-    if (problem.type !== "design") {
-      return NextResponse.json({ error: "Submission mode does not match problem type" }, { status: 400 });
-    }
-    grade = await gradeDesign(problem, submission.doc);
-    storedSubmission = { doc: submission.doc };
+    throw err;
   }
+
+  // Persist the submission in the shape the re-grade path reads back, so a
+  // stored attempt can be re-scored against a future grading change.
+  const storedSubmission: unknown =
+    submission.mode === "debug"
+      ? { files: submission.files }
+      : submission.mode === "review"
+        ? submission.comments
+        : { doc: submission.doc };
+  const runHistory: RunRecord[] | undefined = submission.mode === "debug" ? submission.runHistory : undefined;
 
   const [attempt] = await prisma.$transaction([
     prisma.attempt.create({

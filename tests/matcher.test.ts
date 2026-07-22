@@ -28,6 +28,21 @@ const KEY: AnswerKeyIssue[] = [
   },
 ];
 
+/** An "absent guard" flaw: the defect is at line 88, but the conceptual site is
+ *  the function signature at 80, where strong reviewers actually comment. */
+const ANCHORED: AnswerKeyIssue[] = [
+  {
+    id: "no-idempotency",
+    lineStart: 88,
+    lineEnd: 88,
+    anchors: [80, 81],
+    severity: "critical",
+    failure: "duplicate charge on webhook retry",
+    explanation: "…",
+    keywords: ["idempotency", "duplicate", "retry"],
+  },
+];
+
 const c = (line: number, body: string): ReviewComment => ({ line, body });
 
 describe("matchReviewComments", () => {
@@ -73,5 +88,48 @@ describe("matchReviewComments", () => {
     const r = matchReviewComments([c(44, "while true unbounded loop")], near);
     expect(r.caught).toHaveLength(1);
     expect(r.caught[0].issue.id).toBe("unbounded");
+  });
+});
+
+describe("matchReviewComments — conceptual-site anchors (B4)", () => {
+  it("credits a keyword-bearing comment on a declared anchor line", () => {
+    // The reviewer flagged the missing guard at the function signature (80)
+    // rather than the line that technically lacks it (88). Same insight.
+    const r = matchReviewComments([c(80, "no idempotency key here — a retry double-charges")], ANCHORED);
+    expect(r.caught.map((x) => x.issue.id)).toEqual(["no-idempotency"]);
+    expect(r.caught[0].kind).toBe("anchor");
+    expect(r.unmatched).toHaveLength(0);
+  });
+
+  it("keyword-gates anchors, so an unrelated comment on one is not a catch", () => {
+    const r = matchReviewComments([c(80, "nit: this function name is vague")], ANCHORED);
+    expect(r.caught).toHaveLength(0);
+    expect(r.missed.map((x) => x.id)).toEqual(["no-idempotency"]);
+    expect(r.unmatched).toHaveLength(1);
+  });
+
+  it("ignores lines that are neither in range, adjacent, nor anchored", () => {
+    const r = matchReviewComments([c(60, "idempotency matters somewhere")], ANCHORED);
+    expect(r.caught).toHaveLength(0);
+    expect(r.unmatched).toHaveLength(1);
+  });
+
+  it("prefers the exact line over an anchor when both are commented", () => {
+    const r = matchReviewComments(
+      [c(80, "idempotency concern in this handler"), c(88, "this write is not idempotent")],
+      ANCHORED,
+    );
+    expect(r.caught).toHaveLength(1);
+    expect(r.caught[0].kind).toBe("exact");
+    expect(r.caught[0].comment.line).toBe(88);
+    // The anchor comment stays unmatched — the judge decides if it's a real
+    // extra observation or a false positive.
+    expect(r.unmatched.map((x) => x.line)).toEqual([80]);
+  });
+
+  it("is unchanged for issues that declare no anchors", () => {
+    const r = matchReviewComments([c(30, "unbounded retry risk")], KEY);
+    expect(r.caught).toHaveLength(0);
+    expect(r.unmatched).toHaveLength(1);
   });
 });
