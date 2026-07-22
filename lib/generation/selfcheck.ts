@@ -9,7 +9,7 @@
  * harness (write the package to a temp dir, put it on sys.path, import, test).
  */
 import { execFile } from "node:child_process";
-import type { SolutionFile, TestSuite } from "../types";
+import type { AnswerKeyIssue, DiffHunk, SolutionFile, TestSuite } from "../types";
 
 /** Python program mirroring lib/pyodide/harness.ts (multi-file), reading a JSON
  *  payload {files, setup, cases} on stdin. */
@@ -100,6 +100,99 @@ export interface SelfCheckResult {
  * rather than a crash that would just confuse the user.
  */
 export async function selfCheckDebug(
+  correctFiles: SolutionFile[],
+  buggyFiles: SolutionFile[],
+  suite: TestSuite,
+): Promise<SelfCheckResult> {
+  return runOracle(correctFiles, buggyFiles, suite);
+}
+
+/**
+ * Verify a generated review problem.
+ *
+ * A review problem is a correct/buggy pair too — the PR's post-merge state is
+ * the buggy code — so it gets the *same execution oracle* as debug rather than
+ * a model asking itself whether it did a good job. This is what B7 buys: review
+ * problems were previously banked on a model's say-so, which is why the bank
+ * skewed 13 debug / 4 review.
+ *
+ * It adds one gate debug doesn't need: the answer key's line numbers are diff
+ * coordinates, and the matcher credits a catch within ±1 line of them. If the
+ * key says line 42 and the flaw is really at 47, every reviewer who spots it
+ * scores as having missed it. So the cited lines are checked against the diff
+ * *and* the buggy file content — deterministically, since this is exactly the
+ * kind of coordinate bookkeeping a model is worst at and the matcher is most
+ * sensitive to.
+ */
+export async function selfCheckReview(problem: {
+  diff: DiffHunk[];
+  answerKey: AnswerKeyIssue[];
+  correctFiles: SolutionFile[];
+  buggyFiles: SolutionFile[];
+  setup: string;
+  cases: { name: string; body: string }[];
+}): Promise<SelfCheckResult> {
+  const anchors = checkDiffAnchors(problem.diff, problem.buggyFiles, problem.answerKey);
+  if (!anchors.ok) return { ok: false, reason: anchors.reason, qualityScore: 0 };
+
+  const exec = await runOracle(problem.correctFiles, problem.buggyFiles, {
+    setup: problem.setup,
+    cases: problem.cases,
+  });
+  if (!exec.ok) return exec;
+
+  return {
+    ok: true,
+    reason: `${exec.reason}; ${anchors.reason}`,
+    qualityScore: exec.qualityScore,
+  };
+}
+
+/**
+ * Every answer-key line range must land on a real diff line whose content
+ * matches the buggy file at that line number. Guards the matcher's coordinate
+ * assumption (see selfCheckReview).
+ */
+function checkDiffAnchors(
+  diff: DiffHunk[],
+  buggyFiles: SolutionFile[],
+  answerKey: AnswerKeyIssue[],
+): { ok: boolean; reason: string } {
+  if (!answerKey.length) return { ok: false, reason: "empty answer key" };
+
+  const fileContent = new Map(buggyFiles.map((f) => [f.path, f.content.split("\n")]));
+
+  for (const issue of answerKey) {
+    const hunk = diff.find((h) => h.file === issue.file);
+    if (!hunk) return { ok: false, reason: `answer key cites ${issue.file}, which the diff doesn't touch` };
+
+    // Only add/context lines carry new-file numbering; deleted lines have none,
+    // and a flaw can't live on a line the PR removed.
+    const numbered = new Map(
+      hunk.lines.filter((l) => l.lineNo !== null && l.kind !== "del").map((l) => [l.lineNo as number, l.content]),
+    );
+
+    for (let line = issue.lineStart; line <= issue.lineEnd; line++) {
+      const diffLine = numbered.get(line);
+      if (diffLine === undefined) {
+        return { ok: false, reason: `answer key ${issue.id} cites ${issue.file}:${line}, absent from the diff` };
+      }
+      const source = fileContent.get(issue.file ?? "");
+      // The diff is the coordinate system the user comments in; the file is what
+      // the oracle executed. If they disagree, the key can't point at both.
+      if (source && source[line - 1] !== undefined && source[line - 1].trim() !== diffLine.trim()) {
+        return {
+          ok: false,
+          reason: `answer key ${issue.id}: diff and buggy file disagree at ${issue.file}:${line}`,
+        };
+      }
+    }
+  }
+  return { ok: true, reason: `${answerKey.length} answer-key anchors verified against the diff` };
+}
+
+/** The shared correct-passes / buggy-fails execution gate. */
+async function runOracle(
   correctFiles: SolutionFile[],
   buggyFiles: SolutionFile[],
   suite: TestSuite,

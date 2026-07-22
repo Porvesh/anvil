@@ -12,7 +12,7 @@
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { anthropic } from "./client";
-import { MODELS, MAX_TOKENS } from "./models";
+import { callParams } from "./models";
 import type { AnswerKeyIssue, Problem, ReviewComment, RunRecord, SolutionFile } from "../types";
 
 // --- structured output schemas ---
@@ -121,8 +121,7 @@ export async function judgeReview(
     ids.length ? ids.map((id) => `- ${byId.get(id)?.failure ?? id}`).join("\n") : "(none)";
 
   const result = await anthropic.messages.parse({
-    model: MODELS.grading,
-    max_tokens: MAX_TOKENS.grade,
+    ...callParams("judgeReview"),
     system,
     messages: [
       {
@@ -182,8 +181,7 @@ export async function judgeDesign(problem: Problem, doc: string): Promise<Design
   );
 
   const result = await anthropic.messages.parse({
-    model: MODELS.grading,
-    max_tokens: MAX_TOKENS.grade,
+    ...callParams("judgeDesign"),
     system,
     messages: [
       {
@@ -245,8 +243,7 @@ export async function judgeDebug(
     : "(no runs recorded)";
 
   const result = await anthropic.messages.parse({
-    model: MODELS.grading,
-    max_tokens: MAX_TOKENS.grade,
+    ...callParams("judgeDebug"),
     system,
     messages: [
       {

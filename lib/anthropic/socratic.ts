@@ -6,7 +6,6 @@
  * Streaming mechanics live in ./stream; this module builds the cached system
  * prefix (problem + answer key) and maps the transcript to message turns.
  */
-import { MAX_TOKENS } from "./models";
 import { ensureUserFirst, sseFromMessages, type ChatTurn } from "./stream";
 import type { ChatMessage, Grade, Problem } from "../types";
 
@@ -67,5 +66,5 @@ export function streamSocraticSSE(
   const turns: ChatTurn[] = toTurns(history);
   if (userMessage) turns.push({ role: "user", content: userMessage });
   const messages = ensureUserFirst(turns, OPENING_KICKOFF);
-  return sseFromMessages(buildSystem(problem, grade), messages, MAX_TOKENS.socratic, onFinal);
+  return sseFromMessages("socratic", buildSystem(problem, grade), messages, onFinal);
 }
