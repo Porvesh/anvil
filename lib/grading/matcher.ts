@@ -41,6 +41,23 @@ export function withinIssue(line: number, issue: AnswerKeyIssue, tol = ANCHOR_TO
   return line >= issue.lineStart - tol && line <= issue.lineEnd + tol;
 }
 
+/**
+ * Is this comment even on the same file as this issue?
+ *
+ * Line numbers restart in every file, so without this check a comment on line 42
+ * of one file is credited for an issue on line 42 of another — the bigger and
+ * more multi-file the PR, the more often that collides, and it reads as the
+ * grader inventing a catch the user never made.
+ *
+ * Falls back to line-only when either side omits the path: single-file problems
+ * (and attempts stored before comments carried one) are unambiguous anyway, and
+ * failing them closed would retroactively un-catch real catches.
+ */
+export function sameFile(comment: ReviewComment, issue: AnswerKeyIssue): boolean {
+  if (!comment.file || !issue.file) return true;
+  return comment.file === issue.file;
+}
+
 /** Does the comment body mention any of the issue's keywords? (case-insensitive) */
 export function hasKeywordHit(body: string, keywords: string[]): boolean {
   const text = body.toLowerCase();
@@ -107,6 +124,9 @@ const RANK: Record<MatchKind, number> = { exact: 0, adjacent: 1, anchor: 2 };
  *    Same gate, wider reach; see AnswerKeyIssue.anchors.
  */
 function classify(comment: ReviewComment, issue: AnswerKeyIssue): MatchKind | null {
+  // Every rule below is a line-coordinate test, so all of them are meaningless
+  // across files. Gate once, here.
+  if (!sameFile(comment, issue)) return null;
   if (withinIssue(comment.line, issue, 0)) return "exact";
   const keywordHit = hasKeywordHit(comment.body, issue.keywords);
   if (!keywordHit) return null;

@@ -133,3 +133,85 @@ describe("matchReviewComments — conceptual-site anchors (B4)", () => {
     expect(r.unmatched).toHaveLength(1);
   });
 });
+
+/**
+ * Multi-file PRs. Line numbers restart in every file, so the same number appears
+ * in all of them — the matcher has to know which file a comment was left on or a
+ * big PR grades against coordinates that collide.
+ */
+describe("matchReviewComments across files", () => {
+  const MULTI: AnswerKeyIssue[] = [
+    {
+      id: "unbounded-retry",
+      file: "services/payments/webhook.py",
+      lineStart: 42,
+      lineEnd: 42,
+      severity: "major",
+      failure: "unbounded retry",
+      explanation: "…",
+      keywords: ["while true", "unbounded"],
+    },
+    {
+      id: "missing-lock",
+      file: "services/inventory/reserve.py",
+      lineStart: 42,
+      lineEnd: 42,
+      severity: "critical",
+      failure: "no lock around the read-modify-write",
+      explanation: "…",
+      keywords: ["lock", "race"],
+    },
+  ];
+
+  const fc = (file: string, line: number, body: string): ReviewComment => ({ file, line, body });
+
+  it("credits a comment only to an issue in the same file", () => {
+    const r = matchReviewComments([fc("services/payments/webhook.py", 42, "unbounded retry here")], MULTI);
+    expect(r.caught).toHaveLength(1);
+    expect(r.caught[0].issue.id).toBe("unbounded-retry");
+    expect(r.missed.map((i) => i.id)).toEqual(["missing-lock"]);
+  });
+
+  it("does not credit a same-numbered line in a different file", () => {
+    // Line 42 of the inventory file must not satisfy the webhook issue at 42.
+    const r = matchReviewComments([fc("services/inventory/reserve.py", 42, "unbounded retry here")], MULTI);
+    expect(r.caught.map((c) => c.issue.id)).toEqual(["missing-lock"]);
+    expect(r.missed.map((i) => i.id)).toEqual(["unbounded-retry"]);
+  });
+
+  it("keeps two same-line comments in different files as two distinct catches", () => {
+    const r = matchReviewComments(
+      [
+        fc("services/payments/webhook.py", 42, "this retry loop is unbounded"),
+        fc("services/inventory/reserve.py", 42, "race — needs a lock"),
+      ],
+      MULTI,
+    );
+    expect(r.caught).toHaveLength(2);
+    expect(r.missed).toHaveLength(0);
+    expect(r.unmatched).toHaveLength(0);
+  });
+
+  it("gates the keyword-based adjacent and anchor rules on the file too", () => {
+    const anchored: AnswerKeyIssue[] = [
+      { ...MULTI[0], anchors: [80] },
+    ];
+    // Right keyword, right anchor line, wrong file.
+    const wrongFile = matchReviewComments([fc("services/inventory/reserve.py", 80, "unbounded retry")], anchored);
+    expect(wrongFile.caught).toHaveLength(0);
+
+    const rightFile = matchReviewComments([fc("services/payments/webhook.py", 80, "unbounded retry")], anchored);
+    expect(rightFile.caught).toHaveLength(1);
+    expect(rightFile.caught[0].kind).toBe("anchor");
+  });
+
+  it("falls back to line-only when a side omits the file (single-file problems, stored attempts)", () => {
+    const singleFileKey: AnswerKeyIssue[] = [{ ...MULTI[0], file: undefined }];
+    const r = matchReviewComments([{ line: 42, body: "unbounded retry" }], singleFileKey);
+    expect(r.caught).toHaveLength(1);
+
+    // A comment that carries a file still matches a key that doesn't.
+    const mixed = matchReviewComments([fc("anything.py", 42, "unbounded retry")], singleFileKey);
+    expect(mixed.caught).toHaveLength(1);
+  });
+});
