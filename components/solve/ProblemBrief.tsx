@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { ProblemType, Difficulty } from "@/lib/types";
+import { RichText } from "@/lib/richText";
 import styles from "./ProblemBrief.module.css";
 
 /**
@@ -36,7 +37,7 @@ export function ProblemBrief({
       </button>
       {open && (
         <div className={styles.body}>
-          <div className={styles.symptom}>{prompt}</div>
+          <RichText className={styles.symptom} text={prompt} />
         </div>
       )}
     </div>

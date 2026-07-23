@@ -1,20 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState, Fragment } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ChatMessage } from "@/lib/types";
 import { useVoice } from "@/lib/useVoice";
+import { renderInline } from "@/lib/richText";
+import { IconMic, IconSpeaker, IconSpeakerOff } from "@/lib/icons";
 import styles from "./InterviewerPanel.module.css";
-
-/** Render `backtick` spans as <code>. Keeps interviewer text readable. */
-function formatContent(text: string) {
-  return text.split(/(`[^`]+`)/g).map((part, i) =>
-    part.startsWith("`") && part.endsWith("`") ? (
-      <code key={i}>{part.slice(1, -1)}</code>
-    ) : (
-      <Fragment key={i}>{part}</Fragment>
-    ),
-  );
-}
 
 /**
  * The persistent AI interviewer panel (spec §6) — first-class, shared across
@@ -119,7 +110,7 @@ export function InterviewerPanel({
           .map((m, i) => (
             <div key={i} className={`${styles.msg} ${m.role === "interviewer" ? styles.ai : styles.me}`}>
               {m.role === "interviewer" && <div className={styles.lbl}>Interviewer</div>}
-              <div className={styles.bub}>{formatContent(m.content)}</div>
+              <div className={styles.bub}>{renderInline(m.content)}</div>
             </div>
           ))}
         {showTyping && (
@@ -150,7 +141,7 @@ export function InterviewerPanel({
               title={speakReplies ? "Interviewer voice on — click to mute" : "Hear the interviewer's replies aloud"}
               aria-label="Toggle interviewer voice"
             >
-              {speakReplies ? "🔊" : "🔈"}
+              {speakReplies ? <IconSpeaker /> : <IconSpeakerOff />}
             </button>
           )}
           {voice.support.stt && (
@@ -161,7 +152,8 @@ export function InterviewerPanel({
               title={voice.listening ? "Listening… click to stop" : "Talk to the interviewer"}
               aria-label="Dictate a question"
             >
-              🎙
+              <IconMic />
+              {voice.listening && <span className={styles.listenRing} aria-hidden />}
             </button>
           )}
           <textarea
