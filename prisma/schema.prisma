@@ -1,10 +1,13 @@
-// Anvil data model (spec §15).
+// Anvil data model (spec §7, §11).
 //
-// Local dev runs on SQLite for zero setup. To move to hosted Postgres for prod,
-// change `provider` to "postgresql" and set DATABASE_URL to the connection string,
-// then re-run `prisma migrate`. Enum-like columns are plain strings and structured
-// blobs are `Json` (stored as TEXT on SQLite, jsonb on Postgres) so the schema is
-// portable across both engines without churn.
+// Local dev runs on SQLite for zero setup; production runs Postgres. Enum-like
+// columns are plain strings and structured blobs are `Json` (TEXT on SQLite,
+// jsonb on Postgres), which is the whole portability story — the models below
+// are identical on both engines.
+//
+// Switch with `npm run db:postgres` (scripts/use-postgres.ts rewrites the
+// datasource block in place, so the models stay a single source of truth) and
+// regenerate migrations, whose SQL is dialect-specific.
 
 generator client {
   provider = "prisma-client-js"

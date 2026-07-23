@@ -14,7 +14,8 @@
     "regrade": "tsx scripts/regrade.ts",
     "backfill:tags": "tsx scripts/backfill-tags.ts",
     "worker": "tsx worker/index.ts",
-    "purge:jds": "tsx scripts/purge-jds.ts"
+    "purge:jds": "tsx scripts/purge-jds.ts",
+    "db:postgres": "tsx scripts/use-postgres.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
