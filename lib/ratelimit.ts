@@ -1,37 +1,96 @@
 /**
- * Minimal in-memory fixed-window rate limiter (spec §14 — cap abuse of the
- * subsidized grading tokens). Keyed per client, applied to the model-calling
- * routes only.
+ * Fixed-window rate limiting (spec §12).
  *
- * NOTE: in-memory state is per-process, which is fine for local/single-instance
- * dev. In serverless prod this must move to a shared store (Upstash / Cloudflare
- * KV per the spec) — swap the Map for a KV client without changing callers.
+ * Two buckets with different jobs:
+ *  - `rateLimit` is a burst guard on every model-calling route — 20/60s, keyed
+ *    by IP. It stops a runaway client, nothing more.
+ *  - `dailyLimit` is a *budget* on generation, keyed by session. Generation is
+ *    the only endpoint that can produce a real bill (a banked problem costs a
+ *    couple of dollars once rejected attempts are counted), so it's the only
+ *    one that needs a ceiling rather than a throttle.
+ *
+ * NOTE: the backing store is an in-process Map, which is per-instance and
+ * therefore meaningless across a serverless fleet — two instances give you two
+ * full budgets. `Store` exists so this swaps for KV/Redis at deploy time
+ * without touching a single caller; see `setRateLimitStore`.
  */
+
 const WINDOW_MS = 60_000;
 const MAX_PER_WINDOW = 20;
 
-interface Window {
+/** Generations per session per day. Small on purpose — the bank is the product. */
+const DAILY_GENERATIONS = 5;
+
+interface Counter {
   count: number;
   resetAt: number;
 }
-const windows = new Map<string, Window>();
+
+/**
+ * The minimum surface a shared store has to implement. Deliberately narrow:
+ * "increment this key, tell me the count, expire it at this time" is expressible
+ * in Upstash/Redis (INCR + EXPIRE) and Cloudflare KV alike.
+ */
+export interface Store {
+  bump(key: string, windowMs: number, now: number): Counter;
+}
+
+/** Per-process default. Correct for local dev and single-instance deploys. */
+const memory = new Map<string, Counter>();
+
+const memoryStore: Store = {
+  bump(key, windowMs, now) {
+    const existing = memory.get(key);
+    if (!existing || now >= existing.resetAt) {
+      const fresh = { count: 1, resetAt: now + windowMs };
+      memory.set(key, fresh);
+      return fresh;
+    }
+    existing.count += 1;
+    return existing;
+  },
+};
+
+let store: Store = memoryStore;
+
+/** Swap in a shared store (KV, Redis) before serving from more than one instance. */
+export function setRateLimitStore(next: Store): void {
+  store = next;
+}
 
 export interface RateLimitResult {
   ok: boolean;
   remaining: number;
   resetAt: number;
+  limit: number;
 }
 
+function check(key: string, max: number, windowMs: number, now: number): RateLimitResult {
+  const counter = store.bump(key, windowMs, now);
+  return {
+    ok: counter.count <= max,
+    remaining: Math.max(0, max - counter.count),
+    resetAt: counter.resetAt,
+    limit: max,
+  };
+}
+
+/** Burst guard: 20 requests per minute per client. */
 export function rateLimit(key: string, now = Date.now()): RateLimitResult {
-  const existing = windows.get(key);
-  if (!existing || now >= existing.resetAt) {
-    const fresh = { count: 1, resetAt: now + WINDOW_MS };
-    windows.set(key, fresh);
-    return { ok: true, remaining: MAX_PER_WINDOW - 1, resetAt: fresh.resetAt };
-  }
-  existing.count += 1;
-  const remaining = Math.max(0, MAX_PER_WINDOW - existing.count);
-  return { ok: existing.count <= MAX_PER_WINDOW, remaining, resetAt: existing.resetAt };
+  return check(key, MAX_PER_WINDOW, WINDOW_MS, now);
+}
+
+/**
+ * Spend budget: N per calendar day.
+ *
+ * Keyed by day so the window resets at midnight UTC rather than sliding — a
+ * user who hits the cap gets it back on a predictable schedule instead of at an
+ * arbitrary moment they can't reason about.
+ */
+export function dailyLimit(key: string, now = Date.now()): RateLimitResult {
+  const day = new Date(now).toISOString().slice(0, 10);
+  const endOfDay = Date.parse(`${day}T23:59:59.999Z`);
+  return check(`${key}:${day}`, DAILY_GENERATIONS, endOfDay - now + 1, now);
 }
 
 /** Derive a client key from the request (IP, best-effort behind proxies). */

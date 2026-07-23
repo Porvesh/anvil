@@ -97,6 +97,51 @@ model Vote {
   @@index([problemId])
 }
 
+/// A queued problem-generation request (spec §10, B8).
+///
+/// Generation needs local python3 for the oracle and 200-300s to emit a project
+/// twice — neither is available in a serverless request handler, and skipping
+/// the oracle to fit the request path would put unverified problems in front of
+/// a live user. So the web tier only enqueues, and a worker with python3 drains
+/// the queue. This table IS the queue: on Postgres the worker claims rows with
+/// FOR UPDATE SKIP LOCKED, which is a fine queue at this volume and costs zero
+/// new services.
+///
+/// It is also the only place a pasted job description lives once B8 lands
+/// (INV-12) — see the retention decision in lib/worker/queue.ts.
+model GenerationJob {
+  id        String @id @default(cuid())
+  sessionId String
+
+  /// The pasted JD. Sensitive: may carry a real company's internal role
+  /// details. Cleared once the job completes — see clearJdOnComplete.
+  jd   String?
+  tags Json    @default("[]")
+
+  type       String @default("debug") // ProblemType
+  difficulty String @default("medium")
+
+  /// pending | claimed | writing | verifying | done | failed
+  status   String @default("pending")
+  /// Free-text phase note surfaced over SSE (e.g. "attempt 2: rejected — …").
+  note     String?
+  attempts Int     @default(0)
+
+  problemId String? // set on success
+  error     String? // set on terminal failure
+
+  /// Earliest time this job may be claimed again. Set on requeue so a transient
+  /// upstream failure can't burn the whole attempt budget in milliseconds.
+  nextAttemptAt DateTime?
+  claimedAt     DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // The worker's claim query filters on status and takes the oldest first.
+  @@index([status, createdAt])
+  @@index([sessionId])
+}
+
 /// One user's attempt at a problem, including run history, grade, and the Socratic
 /// transcript. Anonymous sessions are keyed by a client-generated sessionId.
 model Attempt {
