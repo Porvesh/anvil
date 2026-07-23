@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Space_Grotesk, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
+import { GenerationWatcher } from "@/components/home/GenerationWatcher";
 
 // Forge identity fonts (ported from v1.html). next/font self-hosts them, so there
 // are no render-blocking requests to Google's CDN and no layout shift.
@@ -34,7 +35,13 @@ export default function RootLayout({
       lang="en"
       className={`${displayFont.variable} ${bodyFont.variable} ${monoFont.variable}`}
     >
-      <body>{children}</body>
+      <body>
+        {children}
+        {/* Mounted here, not on the home page: a generation job deliberately
+            outlives the page that started it, because the user is sent off to
+            solve a bank problem the moment they paste a JD. */}
+        <GenerationWatcher />
+      </body>
     </html>
   );
 }

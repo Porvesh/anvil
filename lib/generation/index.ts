@@ -81,7 +81,11 @@ export async function generateAndPersist(prisma: PrismaClient, opts: GenerateOpt
             difficulty,
             title: p.title,
             prompt: p.prompt,
-            jdContext: jd ?? null,
+            // Deliberately NOT storing the JD: it can carry a company's
+            // internal role details, the tags below capture everything the
+            // bank actually needs from it, and the job row that did hold it is
+            // wiped on completion (INV-12). Persisting it here would quietly
+            // undo that.
             files: files as object,
             testSuite: suite as object,
             answerKey: p.answerKey as unknown as object,
@@ -110,7 +114,6 @@ export async function generateAndPersist(prisma: PrismaClient, opts: GenerateOpt
             difficulty,
             title: p.title,
             prompt: p.prompt,
-            jdContext: jd ?? null,
             // The rubric doubles as the answer key: design's "seeded issues" are
             // the dimensions a strong answer must engage with. The sample
             // answers are a generation-time gate only — persisting strongAnswer
@@ -140,7 +143,6 @@ export async function generateAndPersist(prisma: PrismaClient, opts: GenerateOpt
           difficulty,
           title: p.title,
           prompt: p.prompt,
-          jdContext: jd ?? null,
           diff: p.diff as object,
           prMeta: p.prMeta as object,
           answerKey: p.answerKey as unknown as object,

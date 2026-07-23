@@ -13,6 +13,7 @@
  *   npx tsx scripts/regrade.ts --write         # persist new grades
  *   npx tsx scripts/regrade.ts --type review   # only review attempts
  */
+import "../lib/loadEnv";
 import { PrismaClient } from "@prisma/client";
 import { toProblem } from "../lib/problem";
 import { SubmissionModeError, gradeSubmission } from "../lib/grading";

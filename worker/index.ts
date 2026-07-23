@@ -14,6 +14,7 @@
  *   npm run worker
  *   npm run worker -- --once     # drain the queue and exit (CI, local checks)
  */
+import "../lib/loadEnv";
 import { PrismaClient } from "@prisma/client";
 import { generateAndPersist } from "../lib/generation";
 import { CLAIM_TIMEOUT_MS, IDLE_POLL_MS, claimJob, completeJob, requeueOrFail, setStatus } from "../lib/worker/queue";
