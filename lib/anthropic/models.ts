@@ -68,6 +68,40 @@ export const CALLS = {
   },
 
   /**
+   * Design generation gets a bigger budget than debug: `max_tokens` bounds
+   * thinking *and* output together, and a design problem emits a rubric plus
+   * two complete sample answers.
+   *
+   * KNOWN ISSUE — the budget was raised on the theory that 32k was truncating
+   * the JSON, but design generation still fails validation at ~4k characters,
+   * so the real cause is elsewhere (the SDK's parse throws inside the stream's
+   * message_stop handling, before stop_reason is inspectable). Diagnosis open;
+   * debug and review generation are unaffected.
+   */
+  generationDesign: {
+    model: "claude-opus-5",
+    maxTokens: 64000,
+    effort: "medium",
+    why: "rubric + two sample answers + thinking; NB: design generation currently failing, see comment",
+  },
+
+  /**
+   * Review generation needs the largest budget of the three modes.
+   *
+   * A convincing PR is not a 6-line patch: it spans several files, carries real
+   * context lines, and buries its defects in plausible AI slop. On top of that
+   * diff, the oracle needs the whole project twice (pre- and post-fix) plus a
+   * test suite — so the output is roughly the diff plus two copies of every file
+   * it touches. At 32k that ceiling was what forced one-file, +6/−1 PRs.
+   */
+  generationReview: {
+    model: "claude-opus-5",
+    maxTokens: 64000,
+    effort: "medium",
+    why: "a realistic PR is a multi-file diff plus both project states plus tests",
+  },
+
+  /**
    * Fallback when generation is refused. Opus 5 ships elevated cybersecurity
    * safeguards and this product deliberately authors security-flawed code
    * (SQL injection, auth bypass, unsafe deserialization are all on the flaw
