@@ -6,6 +6,7 @@ import Link from "next/link";
 import type { Difficulty, ProblemSummary, ProblemType } from "@/lib/types";
 import { getSessionId } from "@/lib/session";
 import { writePending } from "@/lib/pendingGeneration";
+import { IconShuffle } from "@/lib/icons";
 import styles from "./Home.module.css";
 
 /**
@@ -43,6 +44,19 @@ const DEFAULT_JD = `Senior Backend Engineer · Payments
 - Strong on observability, debugging production incidents
 - Comfortable reviewing others' code, incl. AI-assisted PRs`;
 
+/**
+ * One problem at random from a pool.
+ *
+ * Used where there is no better signal to choose by (an empty JD, or a match
+ * that came back empty). Taking index 0 sent every such click to the same
+ * problem — whichever happened to sort first — so the bank looked like it had
+ * one problem per type no matter how much was in it. Called only from click
+ * handlers, so the randomness never reaches a render.
+ */
+function pick<T>(pool: T[]): T | undefined {
+  return pool.length ? pool[Math.floor(Math.random() * pool.length)] : undefined;
+}
+
 const QUALITY_LABEL: Record<ProblemSummary["quality"], string> = {
   good: "★ community pick",
   mixed: "mixed",
@@ -60,9 +74,19 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
   const [type, setType] = useState<TypeFilter>("any");
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
 
-  const firstOfType = useMemo(() => {
-    const map = {} as Record<ProblemType, string | undefined>;
-    for (const p of problems) if (!map[p.type]) map[p.type] = p.id;
+  /**
+   * How many problems each track holds.
+   *
+   * These cards used to link to the *first* problem of each type, which — since
+   * the bank is read oldest-first — meant the three headline calls to action all
+   * landed on the original seed problems, the most generic thing in the bank, and
+   * the same one on every visit. A track is a category, not a problem: the cards
+   * now open that category and let the user choose, which is what the section
+   * already claims ("pick what you want to sharpen").
+   */
+  const countOfType = useMemo(() => {
+    const map = { debug: 0, review: 0, design: 0 } as Record<ProblemType, number>;
+    for (const p of problems) map[p.type] += 1;
     return map;
   }, [problems]);
 
@@ -92,7 +116,7 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
     setGenError(null);
     if (!jdTrimmed) {
       const pool = type === "any" ? problems : problems.filter((p) => p.type === type);
-      const target = pool[0] ?? problems[0];
+      const target = pick(pool) ?? pick(problems);
       if (target) router.push(`/solve/${target.id}`);
       return;
     }
@@ -136,7 +160,8 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
           });
       }
 
-      const fallback = type === "any" ? problems[0] : (problems.find((p) => p.type === type) ?? problems[0]);
+      const fallback =
+        type === "any" ? pick(problems) : (pick(problems.filter((p) => p.type === type)) ?? pick(problems));
       const target = best ?? fallback;
       if (!target) {
         throw new Error("The bank is empty — run the generator to seed it.");
@@ -222,7 +247,11 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
           <div className={styles.sideHead}>
             <h3>From the bank</h3>
             <button className={styles.shuffle} onClick={shuffle} disabled={shuffling}>
-              {shuffling ? "…" : "⤨ Shuffle"}
+              {shuffling ? "…" : (
+                <>
+                  <IconShuffle /> Shuffle
+                </>
+              )}
             </button>
           </div>
           {recent.map((p) => (
@@ -230,6 +259,13 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
               <span className={`pill ${TYPE_PILL[p.type]}`}>{TYPE_LABEL[p.type]}</span>
               <span className={styles.t}>{p.title}</span>
               <span className={styles.rowmeta}>
+                {/* How much code is behind the link — a five-file PR and a
+                    six-line patch looked identical in this list. */}
+                {p.scale && (
+                  <span className={styles.scale}>
+                    {p.type === "review" ? `${p.scale.files}f +${p.scale.lines}` : `${p.scale.files}f`}
+                  </span>
+                )}
                 {p.timesAttempted > 0 && <span className={styles.attempts}>{p.timesAttempted}×</span>}
                 {p.quality !== "new" && <span className={`${styles.quality} ${styles[`q_${p.quality}`]}`}>{QUALITY_LABEL[p.quality]}</span>}
                 <span className={styles.diff}>{p.difficulty}</span>
@@ -290,27 +326,41 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
             kind="debug"
             title="Debug"
             desc="Ship a fix. Given runnable code and a failing symptom, edit and re-run in the browser until the tests pass."
-            go="Runs live in your browser →"
-            href={firstOfType.debug ? `/solve/${firstOfType.debug}` : "/"}
+            go={trackGo(countOfType.debug, ["debug problem", "debug problems"])}
+            href="/bank?type=debug"
           />
           <TrackCard
             kind="review"
             title="Code review"
             desc="Catch what matters. Review a plausible AI-generated PR, leave line comments, then defend them in follow-up."
-            go="Real diff, real comments →"
-            href={firstOfType.review ? `/solve/${firstOfType.review}` : "/"}
+            go={trackGo(countOfType.review, ["PR to review", "PRs to review"])}
+            href="/bank?type=review"
           />
           <TrackCard
             kind="design"
             title="System design"
             desc="Think out loud. Write a design doc while an AI interviewer probes requirements, capacity math, and failure modes — graded on a rubric."
-            go="Interviewer-led session →"
-            href={firstOfType.design ? `/solve/${firstOfType.design}` : "/"}
+            go={trackGo(countOfType.design, ["design brief", "design briefs"])}
+            href="/bank?type=design"
           />
         </div>
       </section>
     </div>
   );
+}
+
+/**
+ * The card's action line. Says what the click actually opens and how much is
+ * there, so the card never promises a session it can't start — an empty track
+ * sends the user to the JD box, which is the only thing that fills it.
+ */
+function trackGo(count: number, [singular, plural]: [string, string]): string {
+  // Every card lands on that track's slice of the bank, so an empty track must
+  // not promise generation here — the bank's own empty state points at the JD box.
+  if (count === 0) return "Nothing banked yet →";
+  // Both forms are spelled out: these are noun phrases, and suffixing an "s"
+  // turns "PR to review" into "PR to reviews".
+  return `Pick from ${count} ${count === 1 ? singular : plural} →`;
 }
 
 function TrackCard({

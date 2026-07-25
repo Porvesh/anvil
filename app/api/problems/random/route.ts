@@ -10,6 +10,18 @@ export const runtime = "nodejs";
  * rather than loading the table, so it stays O(1)-ish as the bank grows.
  * `?exclude=` avoids handing back the problem the user just finished.
  */
+/**
+ * A stable row order is what makes `skip` mean anything.
+ *
+ * Without an explicit `orderBy` the database may return rows in a different
+ * order for each query, so a random `skip` doesn't sample the set — it lands
+ * somewhere unpredictable. Measured on a 4-problem set, `skip: 0` and `skip: 2`
+ * both returned the same row and one problem was unreachable at every skip
+ * value, i.e. shuffle could never serve it. Ordering by the primary key costs
+ * nothing (it's the clustered index) and makes skip a true 1:1 selector.
+ */
+const STABLE_ORDER = { id: "asc" } as const;
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const type = searchParams.get("type");
@@ -27,10 +39,10 @@ export async function GET(req: Request) {
     delete where.id;
     const total = await prisma.problem.count({ where });
     if (total === 0) return NextResponse.json({ id: null });
-    const row = await prisma.problem.findFirst({ where, skip: Math.floor(Math.random() * total), select: { id: true } });
+    const row = await prisma.problem.findFirst({ where, orderBy: STABLE_ORDER, skip: Math.floor(Math.random() * total), select: { id: true } });
     return NextResponse.json({ id: row?.id ?? null });
   }
 
-  const row = await prisma.problem.findFirst({ where, skip: Math.floor(Math.random() * count), select: { id: true } });
+  const row = await prisma.problem.findFirst({ where, orderBy: STABLE_ORDER, skip: Math.floor(Math.random() * count), select: { id: true } });
   return NextResponse.json({ id: row?.id ?? null });
 }
