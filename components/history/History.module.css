@@ -1,0 +1,135 @@
+/* Attempt history. Deliberately quieter than the results screen: this is a log
+   to scan, not a verdict to read. */
+.wrap {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 40px 24px 72px;
+}
+
+.head {
+  margin-bottom: 24px;
+}
+.h1 {
+  font-family: var(--disp);
+  font-size: 30px;
+  line-height: 1.15;
+  margin: 10px 0 0;
+  letter-spacing: -0.01em;
+}
+.sub {
+  color: var(--steel);
+  font-size: 14px;
+  margin: 9px 0 0;
+  max-width: 68ch;
+}
+
+.stats {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 22px;
+  flex-wrap: wrap;
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--slab);
+  border: 1px solid var(--edge-soft);
+  border-radius: 12px;
+  padding: 13px 20px;
+  min-width: 132px;
+}
+.statNum {
+  font-family: var(--disp);
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1;
+}
+.statLbl {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--steel-dim);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--edge-soft);
+  border-radius: 10px;
+  background: var(--slab);
+  color: inherit;
+  transition: 0.12s;
+}
+.row:hover {
+  border-color: var(--steel-dim);
+  background: var(--slab2);
+}
+.title {
+  flex: 1;
+  font-size: 13.5px;
+  min-width: 0;
+}
+.detail {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--steel-dim);
+  white-space: nowrap;
+}
+.at {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--steel-dim);
+  min-width: 66px;
+  text-align: right;
+}
+.score {
+  flex: none;
+  font-family: var(--disp);
+  font-size: 17px;
+  font-weight: 600;
+  min-width: 34px;
+  text-align: right;
+}
+/* Same three bands as the results screen, so a 72 means the same thing here. */
+.strong {
+  color: var(--green);
+}
+.mid {
+  color: var(--amber);
+}
+.weak {
+  color: var(--red);
+}
+.none {
+  color: var(--steel-dim);
+}
+
+.empty {
+  border: 1px dashed var(--edge);
+  border-radius: 12px;
+  padding: 28px;
+  text-align: center;
+  color: var(--steel);
+  font-size: 13.5px;
+}
+.link {
+  color: var(--blue);
+  font: inherit;
+  padding: 0;
+}
+.link:hover {
+  text-decoration: underline;
+}
