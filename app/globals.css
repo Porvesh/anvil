@@ -63,6 +63,38 @@ body {
   background: var(--spark-glow);
 }
 
+/* Keyboard navigation gets the same affordance a hover gets — without this the
+   only focus indicator was the browser default, which most resets (including
+   ours) had silently eaten. */
+:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Scrollbars in the panel color instead of the OS default — with the diff, the
+   editor, and the chat all scrolling independently, stock scrollbars were the
+   brightest thing on the page. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--raise) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--raise);
+  border-radius: 6px;
+  border: 2px solid var(--iron);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--edge);
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 a {
   color: var(--blue);
   text-decoration: none;
@@ -94,7 +126,8 @@ textarea {
   color: var(--steel-dim);
 }
 
-/* Buttons — the three recurring variants from v1.html. */
+/* Buttons — the three recurring variants from v1.html. A subtle lift on hover
+   and a press on :active make every button answer the click physically. */
 .btn-primary {
   background: var(--blue);
   color: #0a0c0f;
@@ -102,9 +135,13 @@ textarea {
   padding: 9px 18px;
   border-radius: 9px;
   font-size: 14px;
+  transition: background 0.12s, transform 0.06s;
 }
 .btn-primary:hover {
   background: #6fb3ee;
+}
+.btn-primary:active:not(:disabled) {
+  transform: translateY(1px);
 }
 .btn-primary:disabled {
   opacity: 0.55;
@@ -118,9 +155,14 @@ textarea {
   font-size: 13px;
   color: var(--parchment-dim);
   background: var(--slab);
+  transition: border-color 0.12s, color 0.12s, transform 0.06s;
 }
 .btn-ghost:hover {
   border-color: var(--steel-dim);
+  color: var(--parchment);
+}
+.btn-ghost:active {
+  transform: translateY(1px);
 }
 
 .btn-spark {
@@ -133,9 +175,13 @@ textarea {
   padding: 7px 15px;
   border-radius: 8px;
   font-size: 13px;
+  transition: background 0.12s, transform 0.06s;
 }
 .btn-spark:hover {
   background: var(--spark-soft);
+}
+.btn-spark:active {
+  transform: translateY(1px);
 }
 
 /* Type/difficulty pills, reused in the bank and elsewhere. */

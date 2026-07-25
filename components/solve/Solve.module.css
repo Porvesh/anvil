@@ -55,14 +55,21 @@
   border-color: var(--steel-dim);
 }
 
+/* `minmax(0, 1fr)` on the row, and `min-height: 0` on the column, are what keep a
+   tall work surface inside the viewport. A grid item defaults to `min-height:
+   auto`, so without both, a 300-line diff stretched the row past the stage and
+   the whole page scrolled — taking the top bar, the interviewer panel and the
+   submit button with it. The panes scroll internally instead. */
 .stage {
   flex: 1;
   display: grid;
   grid-template-columns: 1fr 340px;
+  grid-template-rows: minmax(0, 1fr);
   min-height: 0;
 }
 .center {
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--edge-soft);

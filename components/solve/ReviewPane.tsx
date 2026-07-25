@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import type { DiffHunk, DiffLineKind, PrMeta, ReviewComment } from "@/lib/types";
+import { RichText } from "@/lib/richText";
+import { IconSparkle } from "@/lib/icons";
 import styles from "./ReviewPane.module.css";
 
 // The domain kind "context" maps to the `.ctx` class; add/del match directly.
@@ -10,6 +12,37 @@ const KIND_CLASS: Record<DiffLineKind, string> = {
   add: styles.add,
   del: styles.del,
 };
+
+/** Stable DOM id for a file's section, so the jump chips can target it. */
+function fileAnchor(path: string): string {
+  return `diff-${path.replace(/[^a-zA-Z0-9]/g, "-")}`;
+}
+
+/** `billing/webhooks/dedupe.py` → `dedupe.py`, for the narrow jump chips. */
+function shortPath(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1);
+}
+
+/** The sign column: what changed on this row, as its own aligned character. */
+const KIND_SIGN: Record<DiffLineKind, string> = { add: "+", del: "−", context: "" };
+
+/**
+ * Where numbered lines skip ahead, and by how much — `idx → hidden count`.
+ *
+ * A diff that jumps from line 40 to line 388 means ~350 unchanged lines the PR
+ * didn't touch. Rendered without a marker the file reads as continuous, and a
+ * reviewer's mental model of "what's near this code" is silently wrong.
+ */
+function gapsFor(hunk: DiffHunk): Map<number, number> {
+  const gaps = new Map<number, number>();
+  let prev: number | null = null;
+  hunk.lines.forEach((line, idx) => {
+    if (line.lineNo === null) return; // deleted lines carry no new-file number
+    if (prev !== null && line.lineNo > prev + 1) gaps.set(idx, line.lineNo - prev - 1);
+    prev = line.lineNo;
+  });
+  return gaps;
+}
 
 /**
  * Review work surface (spec §6, §10): a GitHub-style PR diff with inline comment
@@ -36,24 +69,27 @@ export function ReviewPane({
   prMeta: PrMeta | null;
   diff: DiffHunk[];
   comments: ReviewComment[];
-  onAddComment: (line: number, body: string) => void;
+  onAddComment: (file: string, line: number, body: string) => void;
   onRemoveComment: (index: number) => void;
 }) {
-  const [openLine, setOpenLine] = useState<number | null>(null);
+  // Keyed by file as well as line: line numbers restart in every file, so a
+  // line-only key opened the composer on the same-numbered line of every file at
+  // once and rendered each thread under all of them.
+  const [open, setOpen] = useState<{ file: string; line: number } | null>(null);
   const [draft, setDraft] = useState("");
 
-  const commentedLines = new Set(comments.map((c) => c.line));
+  const commented = new Set(comments.map((c) => `${c.file ?? ""}:${c.line}`));
 
-  function commentsFor(line: number) {
-    return comments.map((c, i) => ({ c, i })).filter(({ c }) => c.line === line);
+  function commentsFor(file: string, line: number) {
+    return comments.map((c, i) => ({ c, i })).filter(({ c }) => c.line === line && (c.file ?? file) === file);
   }
 
-  function submit(line: number) {
+  function submit(file: string, line: number) {
     const body = draft.trim();
     if (!body) return;
-    onAddComment(line, body);
+    onAddComment(file, line, body);
     setDraft("");
-    setOpenLine(null);
+    setOpen(null);
   }
 
   return (
@@ -61,14 +97,46 @@ export function ReviewPane({
       <div className={styles.prhead}>
         <div className={styles.row1}>
           <h2>{title}</h2>
-          {prMeta?.aiGenerated && <span className={styles.aiflag}>◆ AI-generated</span>}
+          {prMeta?.aiGenerated && (
+            <span className={styles.aiflag}>
+              <IconSparkle /> AI-generated
+            </span>
+          )}
         </div>
         {prMeta && (
           <div className={styles.meta}>
-            #{prMeta.number} · {prMeta.branch} · +{prMeta.additions} −{prMeta.deletions} · {prMeta.files} file
+            #{prMeta.number} · {prMeta.branch} · +{prMeta.additions} −{prMeta.deletions} · {prMeta.files}{" "}
+            {prMeta.files === 1 ? "file" : "files"}
           </div>
         )}
-        <div className={styles.desc}>{prompt}</div>
+        <RichText className={styles.desc} text={prompt} />
+
+        {/* Files changed, with a jump for each. A five-file PR is a lot of
+            scrolling to even learn what it touches, and knowing the shape of a
+            change before reading it is most of how a reviewer decides where to
+            look first. */}
+        {diff.length > 1 && (
+          <div className={styles.filelist}>
+            <span className={styles.filelistLabel}>{diff.length} files changed</span>
+            {diff.map((hunk) => {
+              const added = hunk.lines.filter((l) => l.kind === "add").length;
+              const commentCount = comments.filter((c) => c.file === hunk.file).length;
+              return (
+                <button
+                  key={hunk.file}
+                  className={styles.filechip}
+                  onClick={() => document.getElementById(fileAnchor(hunk.file))?.scrollIntoView({ block: "start" })}
+                  title={`Jump to ${hunk.file}`}
+                >
+                  {shortPath(hunk.file)}
+                  <span className={styles.filechipAdd}>+{added}</span>
+                  {commentCount > 0 && <span className={styles.filechipDot} aria-label={`${commentCount} comments`} />}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         <div className={styles.progress}>
           <span className={styles.progressCount}>
             {comments.length} {comments.length === 1 ? "comment" : "comments"} left
@@ -77,22 +145,47 @@ export function ReviewPane({
         <div className={styles.guidance}>Click any line to comment. Review it like you'd review a teammate's PR.</div>
       </div>
 
-      {diff.map((hunk) => (
+      {diff.map((hunk) => {
+        const added = hunk.lines.filter((l) => l.kind === "add").length;
+        const removed = hunk.lines.filter((l) => l.kind === "del").length;
+        const gaps = gapsFor(hunk);
+        const slash = hunk.file.lastIndexOf("/");
+        return (
         <div key={hunk.file} style={{ display: "contents" }}>
-          <div className={styles.difffile}>{hunk.file}</div>
+          <div className={styles.difffile} id={fileAnchor(hunk.file)}>
+            <span className={styles.diffpath}>
+              {slash >= 0 && <span className={styles.diffdir}>{hunk.file.slice(0, slash + 1)}</span>}
+              <b>{shortPath(hunk.file)}</b>
+            </span>
+            <span className={styles.diffcounts}>
+              {added > 0 && <span className={styles.countAdd}>+{added}</span>}
+              {removed > 0 && <span className={styles.countDel}>−{removed}</span>}
+            </span>
+          </div>
           <div className={styles.diff}>
             {hunk.lines.map((line, idx) => {
               const commentable = line.lineNo !== null;
-              const threads = commentable ? commentsFor(line.lineNo!) : [];
-              const hasComment = commentable && commentedLines.has(line.lineNo!);
+              const threads = commentable ? commentsFor(hunk.file, line.lineNo!) : [];
+              const hasComment = commentable && commented.has(`${hunk.file}:${line.lineNo}`);
+              const isOpen = open?.file === hunk.file && open?.line === line.lineNo;
+              const gap = gaps.get(idx);
               return (
                 <div key={idx} style={{ display: "contents" }}>
+                  {gap !== undefined && (
+                    <div className={styles.gapline} aria-label={`${gap} unchanged lines not shown`}>
+                      <span className={styles.gapg}>⋮</span>
+                      <span>{gap} unchanged {gap === 1 ? "line" : "lines"} not shown</span>
+                    </div>
+                  )}
                   <div
                     className={`${styles.dl} ${KIND_CLASS[line.kind]} ${commentable ? styles.commentable : ""} ${hasComment ? styles.hasComment : ""}`}
-                    onClick={() => commentable && setOpenLine(openLine === line.lineNo ? null : line.lineNo)}
-                    title={commentable ? `Comment on line ${line.lineNo}` : undefined}
+                    onClick={() => commentable && setOpen(isOpen ? null : { file: hunk.file, line: line.lineNo! })}
+                    title={commentable ? `Comment on ${hunk.file} line ${line.lineNo}` : undefined}
                   >
                     <span className={styles.g}>{line.lineNo ?? ""}</span>
+                    <span className={styles.sign} aria-hidden>
+                      {KIND_SIGN[line.kind]}
+                    </span>
                     <span className={styles.code}>{line.content}</span>
                   </div>
 
@@ -100,9 +193,14 @@ export function ReviewPane({
                     <div className={styles.thread}>
                       {threads.map(({ c, i }) => (
                         <div key={i} className={styles.comment}>
-                          <div className={styles.who}>you · line {c.line}</div>
+                          <div className={styles.who}>
+                            <span className={styles.whoChip}>you</span>
+                            <span className={styles.whoRef}>
+                              {shortPath(c.file ?? hunk.file)}:{c.line}
+                            </span>
+                          </div>
                           {c.body}
-                          <button className={styles.remove} onClick={() => onRemoveComment(i)}>
+                          <button className={styles.remove} onClick={() => onRemoveComment(i)} aria-label="Remove comment">
                             remove
                           </button>
                         </div>
@@ -110,7 +208,7 @@ export function ReviewPane({
                     </div>
                   )}
 
-                  {commentable && openLine === line.lineNo && (
+                  {commentable && isOpen && (
                     <div className={styles.thread}>
                       <div className={styles.addcomment}>
                         <textarea
@@ -120,24 +218,25 @@ export function ReviewPane({
                           value={draft}
                           onChange={(e) => setDraft(e.target.value)}
                           onKeyDown={(e) => {
-                            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(line.lineNo!);
+                            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(hunk.file, line.lineNo!);
                             if (e.key === "Escape") {
-                              setOpenLine(null);
+                              setOpen(null);
                               setDraft("");
                             }
                           }}
                         />
                         <div className={styles.actions}>
+                          <span className={styles.kbdHint}>⌘↵ to comment · esc to cancel</span>
                           <button
                             className={`${styles.mini} ${styles.miniGhost}`}
                             onClick={() => {
-                              setOpenLine(null);
+                              setOpen(null);
                               setDraft("");
                             }}
                           >
                             Cancel
                           </button>
-                          <button className={`${styles.mini} ${styles.miniBlue}`} onClick={() => submit(line.lineNo!)}>
+                          <button className={`${styles.mini} ${styles.miniBlue}`} onClick={() => submit(hunk.file, line.lineNo!)}>
                             Comment
                           </button>
                         </div>
@@ -149,7 +248,8 @@ export function ReviewPane({
             })}
           </div>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

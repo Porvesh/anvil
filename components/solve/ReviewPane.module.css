@@ -1,8 +1,13 @@
+/* The whole review is one scrolling document, the way a PR page is. Each file's
+   diff used to be its own `flex: 1; overflow: auto` region, which was invisible
+   with one file and became several stacked ~100px panes — each with its own
+   scrollbar — as soon as a PR touched three. */
 .pane {
   display: flex;
   flex-direction: column;
   min-height: 0;
   flex: 1;
+  overflow-y: auto;
 }
 .prhead {
   padding: 16px 20px;
@@ -21,11 +26,15 @@
   margin: 0;
 }
 .aiflag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-family: var(--mono);
   font-size: 10.5px;
   letter-spacing: 0.06em;
   color: var(--spark);
   border: 1px solid rgba(255, 122, 60, 0.4);
+  background: rgba(255, 122, 60, 0.07);
   border-radius: 20px;
   padding: 2px 9px;
 }
@@ -35,23 +44,143 @@
   color: var(--steel-dim);
   margin-top: 7px;
 }
+/* The PR description is model-authored prose rendered by lib/richText — a
+   convincing PR body often carries a bullet list and inline identifiers. */
 .desc {
   color: var(--steel);
   font-size: 13.5px;
   margin-top: 10px;
   max-width: 70ch;
+  line-height: 1.6;
 }
+.desc > :first-child {
+  margin-top: 0;
+}
+.desc > :last-child {
+  margin-bottom: 0;
+}
+.desc p {
+  margin: 0 0 8px;
+}
+/* A PR description's own '## Summary' / '## Changes' structure. Small caps-ish
+   and dim: it organises the body without competing with the PR title above. */
+.desc h4,
+.desc h5,
+.desc h6 {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--steel-dim);
+  margin: 14px 0 6px;
+}
+.desc ol,
+.desc ul {
+  margin: 0 0 8px;
+  padding-left: 20px;
+  display: grid;
+  gap: 5px;
+}
+.desc code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--slab2);
+  border: 1px solid var(--edge-soft);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--spark-soft);
+  white-space: nowrap;
+}
+.desc strong {
+  color: var(--parchment-dim);
+  font-weight: 600;
+}
+/* Files-changed strip: the shape of the PR before you start reading it. */
+.filelist {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.filelistLabel {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--steel-dim);
+  margin-right: 4px;
+}
+.filechip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--parchment-dim);
+  background: var(--iron);
+  border: 1px solid var(--edge-soft);
+  border-radius: 7px;
+  padding: 3px 9px;
+  transition: 0.12s;
+}
+.filechip:hover {
+  border-color: var(--steel-dim);
+  color: var(--parchment);
+}
+.filechipAdd {
+  color: var(--green);
+  font-size: 10px;
+}
+/* Marks a file you've already commented on — with five files it's easy to lose
+   track of which ones you've actually reviewed. */
+.filechipDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--blue);
+}
+
+/* Sticks while you scroll that file's hunks, so you always know which file the
+   line you're about to comment on belongs to. */
 .difffile {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   font-family: var(--mono);
   font-size: 12px;
   color: var(--parchment-dim);
   padding: 9px 16px;
+  border-top: 1px solid var(--edge-soft);
   border-bottom: 1px solid var(--edge-soft);
   background: var(--slab2);
 }
+.diffpath b {
+  font-weight: 600;
+  color: var(--parchment);
+}
+.diffdir {
+  color: var(--steel-dim);
+}
+.diffcounts {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 8px;
+  font-size: 11px;
+}
+.countAdd {
+  color: var(--green);
+}
+.countDel {
+  color: var(--red);
+}
+
 .diff {
-  flex: 1;
-  overflow: auto;
+  flex: none;
   background: var(--iron);
   font-family: var(--mono);
   font-size: 12.5px;
@@ -59,37 +188,80 @@
 }
 .dl {
   display: flex;
+  /* Room for the accent bar without shifting code when it appears. */
+  border-left: 2px solid transparent;
 }
 .g {
-  width: 44px;
+  width: 46px;
   text-align: right;
-  padding-right: 12px;
+  padding-right: 10px;
   color: #454b56;
   user-select: none;
   flex: none;
+}
+/* The sign gets its own aligned column instead of being prepended to the code,
+   so `+`/`−` never shifts indentation between changed and context lines. */
+.sign {
+  width: 18px;
+  text-align: center;
+  user-select: none;
+  flex: none;
+  font-weight: 600;
 }
 .code {
   white-space: pre;
   flex: 1;
   padding-right: 16px;
 }
+/* GitHub-style row treatment: body tint + a deeper gutter tint + accent bar,
+   so changed lines read as changed even in peripheral vision. */
 .add {
-  background: rgba(87, 199, 138, 0.09);
+  background: rgba(87, 199, 138, 0.08);
+  border-left-color: rgba(87, 199, 138, 0.55);
 }
-.add .code::before {
-  content: "+ ";
+.add .g {
+  background: rgba(87, 199, 138, 0.08);
+  color: #5d8a70;
+}
+.add .sign {
   color: var(--green);
 }
 .del {
-  background: rgba(229, 97, 94, 0.09);
+  background: rgba(229, 97, 94, 0.08);
+  border-left-color: rgba(229, 97, 94, 0.55);
 }
-.del .code::before {
-  content: "- ";
+.del .g {
+  background: rgba(229, 97, 94, 0.08);
+  color: #8a5d5c;
+}
+.del .sign {
   color: var(--red);
 }
-.ctx .code::before {
-  content: "  ";
+.del .code {
+  opacity: 0.75;
 }
+
+/* A jump in line numbers = code the PR didn't touch. Saying how much keeps the
+   reviewer's sense of "what is near this line" honest. */
+.gapline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--steel-dim);
+  background: var(--slab);
+  border-top: 1px dashed var(--edge);
+  border-bottom: 1px dashed var(--edge);
+  padding: 3px 0;
+  user-select: none;
+}
+.gapg {
+  width: 46px;
+  text-align: right;
+  padding-right: 10px;
+  flex: none;
+}
+
 .commentable {
   cursor: pointer;
   position: relative;
@@ -149,9 +321,13 @@
   font-size: 12px;
   margin-top: 6px;
 }
+/* Comment threads hang off the gutter with a blue rail, the way a review
+   conversation does — visually attached to the line, distinct from the code. */
 .thread {
-  margin: 2px 0 6px 44px;
+  margin: 2px 0 6px 46px;
   max-width: 64ch;
+  border-left: 2px solid rgba(90, 166, 230, 0.45);
+  padding-left: 12px;
 }
 .comment {
   background: var(--slab2);
@@ -161,14 +337,30 @@
   margin: 6px 16px 6px 0;
   font-family: var(--body);
   font-size: 13px;
+  line-height: 1.55;
+  color: var(--parchment-dim);
   position: relative;
 }
 .who {
-  font-size: 11.5px;
-  color: var(--blue);
-  font-weight: 600;
-  margin-bottom: 3px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
   font-family: var(--mono);
+}
+.whoChip {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #0a0c0f;
+  background: var(--blue);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.whoRef {
+  font-size: 11px;
+  color: var(--steel-dim);
 }
 .remove {
   position: absolute;
@@ -179,6 +371,13 @@
 }
 .remove:hover {
   color: var(--red);
+}
+.kbdHint {
+  margin-right: auto;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--steel-dim);
+  align-self: center;
 }
 .addcomment {
   margin: 6px 16px 10px 0;
