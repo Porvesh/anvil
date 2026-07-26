@@ -191,13 +191,13 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
   return (
     <div className={styles.wrap}>
       <section className={styles.hero}>
-        <div className="eyebrow">Interview practice for the parts that actually go wrong</div>
+        <div className="eyebrow">Interview practice for backend engineers</div>
         <h1>
-          Drill the hard part. <em>Not</em> inverted binary trees.
+          Find the <em>bug</em>. Catch the bad PR. Defend the design.
         </h1>
         <p>
-          Fix a bug in a service that&apos;s already running. Review a few hundred lines of AI-written PR that reads
-          perfectly and isn&apos;t. Argue a design out loud with an interviewer that pushes back.
+          Anvil plants every flaw itself, so it knows exactly what you caught and what you walked past — then spends the
+          follow-up on the difference.
         </p>
       </section>
 
