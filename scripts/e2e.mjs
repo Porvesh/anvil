@@ -3,10 +3,13 @@
  * to prove Pyodide + Monaco + grading + Socratic actually work in a browser
  * (not just at build/logic level). Run with the dev server up on :3000.
  */
+import os from "node:os";
 import { chromium } from "playwright";
 
 const BASE = "http://localhost:3000";
-const SHOT = "/private/tmp/claude-501/-Users-porvesh-dev-Anvil/c12f3ba4-21d8-446c-8127-9669cb5617da/scratchpad";
+// Screenshot target — was a hardcoded per-session temp dir from the machine the
+// suite was written on, which silently failed everywhere else.
+const SHOT = process.env.E2E_SHOT_DIR ?? os.tmpdir();
 const log = (...a) => console.log(...a);
 const fail = (msg) => {
   console.error(`\n❌ FAIL: ${msg}`);
@@ -68,7 +71,10 @@ async function pickProblems() {
   const res = await fetch(`${BASE}/api/problems`);
   const { problems } = await res.json();
   const debug = problems.find((p) => p.title.includes("Webhook batcher")) || problems.find((p) => p.type === "debug");
-  const review = problems.find((p) => p.title.startsWith("Add retry")) || problems.find((p) => p.type === "review");
+  // No preferred review problem: the debug leg needs the "Webhook batcher" seed
+  // because it applies a known fix to it, but the review leg is problem-agnostic,
+  // and naming a favourite here meant retiring that problem broke the suite.
+  const review = problems.find((p) => p.type === "review");
   const design = problems.find((p) => p.type === "design");
   return { debug, review, design };
 }
@@ -194,15 +200,29 @@ async function main() {
   // ---------- REVIEW SOLVE ----------
   await page.goto(`${BASE}/solve/${review.id}`, { waitUntil: "networkidle" });
   await page.waitForSelector("text=AI-generated", { timeout: 15000 });
-  log("✓ review diff rendered");
-  // Click the buggy 'while True' line (line 42) to open a comment box
-  const line = page.locator("text=while True:").first();
-  await line.click();
+  const reviewFiles = await page.locator("[class*='difffile']").count();
+  log(`✓ review diff rendered (${reviewFiles} file section(s))`);
+
+  // Comment on a line by coordinate rather than by matching source text: this
+  // used to click a literal 'while True:' from one specific seeded problem, so
+  // retiring that problem silently broke the whole review leg of the suite.
+  // Any commentable added line exercises the same path.
+  const commentable = page.locator("[title^='Comment on']");
+  await commentable.first().waitFor({ timeout: 10000 });
+  const anchor = commentable.nth(Math.min(3, (await commentable.count()) - 1));
+  const anchorTitle = await anchor.getAttribute("title");
+  await anchor.scrollIntoViewIfNeeded();
+  await anchor.click();
   const ta = page.locator('textarea[placeholder*="Comment on line"]');
   await ta.waitFor({ timeout: 5000 });
-  await ta.fill("This while True retry is unbounded — no max attempts, it will block the worker forever if the ledger stays down.");
+  await ta.fill("This retry path looks unbounded and the error is swallowed — a transient failure here would loop or vanish silently.");
   await page.getByRole("button", { name: /^Comment$/ }).click();
-  log("✓ left an inline review comment");
+  await page.waitForTimeout(300);
+  // The comment must attach to the file it was left on, not merely to a line
+  // number that also exists in the other files of a multi-file PR.
+  const threads = await page.locator("[class*='comment']").filter({ hasText: "unbounded" }).count();
+  if (threads !== 1) return fail(`expected 1 comment thread, found ${threads} (${anchorTitle})`);
+  log(`✓ left an inline review comment (${anchorTitle}), attached to exactly one file`);
   await page.getByRole("button", { name: /Submit review/i }).click();
   await page.waitForSelector("text=%", { timeout: 60000 });
   const reviewCaught = await page.locator("text=CAUGHT").count();
@@ -210,7 +230,7 @@ async function main() {
 
   // ---------- RATING (curation) ----------
   await page.getByText("Was this a good problem?").waitFor({ timeout: 10000 });
-  await page.getByRole("button", { name: /👍/ }).click();
+  await page.getByRole("button", { name: /Good problem/ }).click();
   await page.getByText(/✓ rated/).waitFor({ timeout: 8000 });
   log("✓ rated the problem 👍 (curation vote persisted)");
 
@@ -235,6 +255,92 @@ async function main() {
   } else {
     log("… no design problem in bank, skipping design flow");
   }
+
+  // ---------- NAV ----------
+  // Every top-bar entry pointed at "/" once, so a click appeared to do nothing.
+  // Assert each lands on its own page AND is marked current there.
+  await page.goto(BASE, { waitUntil: "networkidle" });
+  for (const [label, path] of [
+    ["Problem bank", "/bank"],
+    ["History", "/history"],
+    ["Practice", "/"],
+  ]) {
+    await page.getByRole("link", { name: label, exact: true }).click();
+    // Navigation is client-side, so the URL settles after the click resolves —
+    // waiting on load state alone reads the previous page.
+    await page.waitForURL((u) => new URL(u).pathname === path, { timeout: 15000 }).catch(() => {});
+    const landed = new URL(page.url()).pathname;
+    if (landed !== path) return fail(`nav "${label}" went to ${landed}, expected ${path}`);
+    const current = (await page.locator('nav a[aria-current="page"]').first().textContent().catch(() => ""))?.trim();
+    if (current !== label) return fail(`nav "${label}" landed on ${path} but marks "${current}" as current`);
+  }
+  log("✓ every nav entry lands on its own page and marks itself current");
+
+  // ---------- TRACK CARDS ----------
+  // These three used to open the first problem of each type, which (the bank
+  // being read oldest-first) was always the same generic seed problem. A track
+  // must open its own slice of the bank instead.
+  for (const [label, type, pill] of [
+    ["Debug", "debug", "pill-dbg"],
+    ["Code review", "review", "pill-rev"],
+    ["System design", "design", "pill-sys"],
+  ]) {
+    await page.goto(BASE, { waitUntil: "networkidle" });
+    await page.locator("a", { hasText: new RegExp(`^${label}`) }).last().click();
+    await page.waitForURL((u) => new URL(u).pathname === "/bank", { timeout: 15000 }).catch(() => {});
+    const url = new URL(page.url());
+    if (url.searchParams.get("type") !== type) {
+      return fail(`track "${label}" opened ${url.pathname}${url.search}, expected ?type=${type}`);
+    }
+    await page.locator("main ul li").first().waitFor({ timeout: 10000 }).catch(() => {});
+    const offType = await page.locator(`main ul li .pill:not(.${pill})`).count();
+    if (offType > 0) return fail(`track "${label}" listed ${offType} rows of another type`);
+  }
+  log("✓ each track card opens its own filtered slice of the bank");
+
+  // ---------- BANK ----------
+  await page.goto(`${BASE}/bank`, { waitUntil: "networkidle" });
+  const allRows = await page.locator("main ul li").count();
+  if (allRows === 0) return fail("bank page listed no problems");
+
+  await page.getByRole("button", { name: "Debug", exact: true }).click();
+  await page.waitForFunction(
+    (before) => {
+      const rows = document.querySelectorAll("main ul li").length;
+      return rows > 0 && rows <= before;
+    },
+    allRows,
+    { timeout: 10000 },
+  ).catch(() => {});
+  const debugRows = await page.locator("main ul li").count();
+  const nonDebug = await page.locator("main ul li .pill-rev, main ul li .pill-sys").count();
+  if (nonDebug > 0) return fail(`bank type filter left ${nonDebug} non-debug rows visible`);
+  log(`✓ bank filters by type (${allRows} → ${debugRows} rows, all debug)`);
+
+  // Tag chips narrow further, client-side over the fetched rows.
+  const chip = page.locator("main button", { hasText: /^idempotency/ }).first();
+  if (await chip.count()) {
+    await chip.click();
+    await page.waitForTimeout(300);
+    const tagged = await page.locator("main ul li").count();
+    if (tagged === 0 || tagged > debugRows) return fail(`tag filter returned ${tagged} rows (had ${debugRows})`);
+    log(`✓ bank filters by topic tag (${debugRows} → ${tagged} rows)`);
+  }
+
+  // A row must actually open the problem.
+  await page.locator("main ul li a").first().click();
+  await page.waitForURL(/\/solve\/.+/, { timeout: 15000 });
+  log("✓ a bank row opens its problem");
+
+  // ---------- HISTORY ----------
+  // This run graded three problems under this browser's session id, so they must
+  // show up here — the end-to-end tie between grading, persistence, and history.
+  await page.goto(`${BASE}/history`, { waitUntil: "networkidle" });
+  await page.locator("main ul li").first().waitFor({ timeout: 15000 }).catch(() => {});
+  const histRows = await page.locator("main ul li").count();
+  if (histRows === 0) return fail("history is empty after grading three problems in this session");
+  const scored = await page.locator("main ul li").filter({ hasText: /\d/ }).count();
+  log(`✓ history lists this session's graded attempts (${histRows} rows, ${scored} with a score)`);
 
   await page.screenshot({ path: `${SHOT}/e2e-final.png`, fullPage: true }).catch(() => {});
   await browser.close();
