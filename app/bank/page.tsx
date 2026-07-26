@@ -26,6 +26,7 @@ export default async function Page({
   const params = await searchParams;
   const type = oneOf(PROBLEM_TYPES, params.type);
   const difficulty = oneOf(DIFFICULTIES, params.difficulty);
+  const sort = params.sort === "new" ? "new" : "top";
 
   // Filter here, not only in the client component. The client seeds its controls
   // from the same query string, so rendering the unfiltered bank first showed
@@ -38,7 +39,8 @@ export default async function Page({
 
   // Match the API's default ordering ("top") so the first paint doesn't reshuffle.
   const rank = new Map(rows.map((r) => [r.id, wilsonScore(r.upvotes, r.downvotes)]));
-  const problems = rows.map(toSummary).sort((a, b) => (rank.get(b.id) ?? 0) - (rank.get(a.id) ?? 0));
+  const problems = rows.map(toSummary);
+  if (sort === "top") problems.sort((a, b) => (rank.get(b.id) ?? 0) - (rank.get(a.id) ?? 0));
 
   return (
     <>

@@ -33,6 +33,13 @@ npm run dev               # → http://localhost:3000
 | `npm run generate:bank -- --type debug --count 3` | Generate new problems offline (Sonnet + executed self-check) |
 | `npm run build` | Production build |
 
+The browser suite targets `http://localhost:3000` by default. Point it at a
+different local or deployed instance with `E2E_BASE_URL`, for example:
+
+```bash
+E2E_BASE_URL=http://localhost:3001 npm run e2e
+```
+
 ## How it's put together
 
 Browser = compute layer (Pyodide in a Web Worker runs untrusted code); a thin Next.js backend serves problems (answer keys stripped), grades against the seeded key (deterministic line-anchor matcher + Haiku judgment), and streams the Socratic follow-up over SSE. Full details in [ARCHITECTURE.md](ARCHITECTURE.md); product rationale in [docs/spec.md](docs/spec.md).

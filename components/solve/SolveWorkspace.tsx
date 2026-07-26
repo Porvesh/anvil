@@ -67,6 +67,7 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
 
   // --- flow state ---
   const [phase, setPhase] = useState<Phase>("solve");
+  const [mobilePane, setMobilePane] = useState<"workspace" | "interviewer">("workspace");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [grade, setGrade] = useState<Grade | null>(null);
@@ -176,6 +177,7 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
       setAiBusy(false);
       setChat([]);
       setPhase("results");
+      setMobilePane("workspace");
       // Open the Socratic follow-up.
       void streamInterviewer("/api/socratic", { attemptId: data.attemptId, history: [] });
     } catch (err) {
@@ -194,12 +196,24 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
       if (attemptId.current) {
         void streamInterviewer("/api/socratic", { attemptId: attemptId.current, history: historyFor(chat), userMessage: text }, text);
       } else {
+        const latestRun = runResult
+          ? [
+              runResult.output,
+              ...runResult.tests
+                .filter((test) => !test.passed)
+                .map((test) => `FAIL ${test.name}${test.message ? `: ${test.message}` : ""}`),
+              runResult.error ? `ERROR: ${runResult.error}` : "",
+              runResult.timedOut ? "Execution timed out." : "",
+            ]
+              .filter(Boolean)
+              .join("\n")
+          : undefined;
         void streamInterviewer(
           "/api/hint",
           {
             problemId: problem.id,
-            code: isDebug ? code : undefined,
-            output: runResult?.output,
+            files: isDebug ? files : undefined,
+            output: isDebug ? latestRun : undefined,
             diffText: isReview ? diffToText(problem) : undefined,
             doc: isDesign ? code : undefined,
             history: historyFor(chat),
@@ -209,7 +223,7 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
         );
       }
     },
-    [chat, problem, isDebug, isReview, isDesign, code, runResult, streamInterviewer],
+    [chat, problem, isDebug, isReview, isDesign, files, code, runResult, streamInterviewer],
   );
 
   const canSubmit = useMemo(() => {
@@ -230,8 +244,26 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
     <div className={shell.solve}>
       <div className={shell.subbar}>
         <span className={shell.crumb}>{crumbType}</span>
-        <span className={shell.title}>{problem.title}</span>
+        <h1 className={shell.title}>{problem.title}</h1>
         <div className={shell.grow} />
+        <div className={shell.mobileNav} role="tablist" aria-label="Solve view">
+          <button
+            role="tab"
+            aria-selected={mobilePane === "workspace"}
+            className={mobilePane === "workspace" ? shell.mobileNavOn : ""}
+            onClick={() => setMobilePane("workspace")}
+          >
+            Workspace
+          </button>
+          <button
+            role="tab"
+            aria-selected={mobilePane === "interviewer"}
+            className={mobilePane === "interviewer" ? shell.mobileNavOn : ""}
+            onClick={() => setMobilePane("interviewer")}
+          >
+            Interviewer{aiBusy ? "…" : ""}
+          </button>
+        </div>
         {phase === "solve" && (
           <>
             {submitError && <span className={shell.error}>{submitError}</span>}
@@ -260,7 +292,7 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
       </div>
 
       <div className={shell.stage}>
-        <div className={shell.center}>
+        <div className={`${shell.center} ${mobilePane === "workspace" ? shell.mobileActive : shell.mobileHidden}`}>
           {phase === "results" && grade ? (
             <Results grade={grade} mode={mode} problemId={problem.id} problemType={problem.type} onReview={() => setPhase("solve")} />
           ) : isDebug ? (
@@ -302,6 +334,7 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
         </div>
 
         <InterviewerPanel
+          className={mobilePane === "interviewer" ? shell.mobileActive : shell.mobileHidden}
           role={interviewerRole}
           messages={chat}
           onSend={onInterviewerSend}

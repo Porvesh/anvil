@@ -1,12 +1,12 @@
 /**
  * Real-browser end-to-end check: drives the full Anvil loop in headless Chromium
  * to prove Pyodide + Monaco + grading + Socratic actually work in a browser
- * (not just at build/logic level). Run with the dev server up on :3000.
+ * (not just at build/logic level). Run with a server up at E2E_BASE_URL (or :3000).
  */
 import os from "node:os";
 import { chromium } from "playwright";
 
-const BASE = "http://localhost:3000";
+const BASE = (process.env.E2E_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
 // Screenshot target — was a hardcoded per-session temp dir from the machine the
 // suite was written on, which silently failed everywhere else.
 const SHOT = process.env.E2E_SHOT_DIR ?? os.tmpdir();
@@ -122,6 +122,11 @@ breaks the actual requirement. Gave up strict exactness under Redis failover.
 `;
 
 async function main() {
+  const health = await fetch(`${BASE}/api/problems`).catch(() => null);
+  if (!health?.ok) {
+    throw new Error(`Anvil is not reachable at ${BASE}. Start the app or set E2E_BASE_URL.`);
+  }
+
   const browser = await chromium.launch();
   const page = await browser.newPage();
   const errors = [];
@@ -343,6 +348,25 @@ async function main() {
   log(`✓ history lists this session's graded attempts (${histRows} rows, ${scored} with a score)`);
 
   await page.screenshot({ path: `${SHOT}/e2e-final.png`, fullPage: true }).catch(() => {});
+
+  // ---------- MOBILE WORKSPACE ----------
+  // Guard the narrow layout as behavior, not just pixels: both primary surfaces
+  // must be reachable and neither list nor editor chrome may widen the document.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${BASE}/bank`, { waitUntil: "networkidle" });
+  const bankOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  if (bankOverflow > 1) return fail(`mobile bank overflows horizontally by ${bankOverflow}px`);
+
+  await page.goto(`${BASE}/solve/${debug.id}`, { waitUntil: "networkidle" });
+  await page.waitForSelector(".monaco-editor", { timeout: 30000 });
+  const solveOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  if (solveOverflow > 1) return fail(`mobile solve workspace overflows horizontally by ${solveOverflow}px`);
+  await page.getByRole("tab", { name: /Interviewer/ }).click();
+  await page.getByPlaceholder(/Ask the interviewer/i).waitFor({ timeout: 5000 });
+  await page.getByRole("tab", { name: "Workspace" }).click();
+  await page.getByRole("button", { name: /Run tests/i }).waitFor({ timeout: 5000 });
+  log("✓ mobile bank and solve views fit the viewport; workspace and interviewer are both reachable");
+
   await browser.close();
 
   if (errors.length) {

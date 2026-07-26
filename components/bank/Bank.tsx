@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ProblemSummary, ProblemType, Difficulty } from "@/lib/types";
 import { DIFFICULTIES, PROBLEM_TYPES } from "@/lib/types";
 import { asTag, type Tag } from "@/lib/tags";
@@ -48,9 +48,11 @@ export function Bank({ initial }: { initial: ProblemSummary[] }) {
   // once as initial state rather than kept in sync, since the controls below are
   // the source of truth from then on.
   const params = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
   const urlType = params.get("type");
   const urlDifficulty = params.get("difficulty");
-  const urlTag = asTag(params.get("tag") ?? "");
+  const urlTags = params.getAll("tag").map(asTag).filter((tag): tag is Tag => tag !== null);
 
   const [problems, setProblems] = useState(initial);
   const [type, setType] = useState<ProblemType | "all">(
@@ -59,8 +61,8 @@ export function Bank({ initial }: { initial: ProblemSummary[] }) {
   const [difficulty, setDifficulty] = useState<Difficulty | "all">(
     (DIFFICULTIES as readonly string[]).includes(urlDifficulty ?? "") ? (urlDifficulty as Difficulty) : "all",
   );
-  const [sort, setSort] = useState<Sort>("top");
-  const [activeTags, setActiveTags] = useState<Tag[]>(urlTag ? [urlTag] : []);
+  const [sort, setSort] = useState<Sort>(params.get("sort") === "new" ? "new" : "top");
+  const [activeTags, setActiveTags] = useState<Tag[]>(() => [...new Set(urlTags)]);
   const [loading, setLoading] = useState(false);
   const firstRender = useRef(true);
 
@@ -94,6 +96,20 @@ export function Bank({ initial }: { initial: ProblemSummary[] }) {
       cancelled = true;
     };
   }, [type, difficulty, sort]);
+
+  // Keep the controls shareable and browser-navigation friendly. The server page
+  // reads the same query on a fresh request; tags stay client-side because they
+  // filter the already fetched, closed-vocabulary result set instantly.
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (type !== "all") next.set("type", type);
+    if (difficulty !== "all") next.set("difficulty", difficulty);
+    if (sort !== "top") next.set("sort", sort);
+    for (const tag of activeTags) next.append("tag", tag);
+
+    const href = next.size > 0 ? `${pathname}?${next}` : pathname;
+    router.replace(href, { scroll: false });
+  }, [activeTags, difficulty, pathname, router, sort, type]);
 
   // Tags actually present in the current result set, commonest first — showing
   // the whole 40-tag vocabulary would mostly offer dead ends.

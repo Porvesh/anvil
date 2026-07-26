@@ -5,58 +5,72 @@
 import { z } from "zod";
 
 const reviewCommentSchema = z.object({
-  file: z.string().optional(),
+  file: z.string().max(300).optional(),
   line: z.number().int(),
-  body: z.string().min(1),
+  body: z.string().min(1).max(4_000),
 });
 
 const runRecordSchema = z.object({
   passed: z.number().int(),
   failed: z.number().int(),
-  output: z.string(),
-  at: z.number(),
+  output: z.string().max(50_000),
+  at: z.number().nonnegative(),
 });
 
-const solutionFileSchema = z.object({
-  path: z.string().min(1),
-  content: z.string(),
+export const solutionFileSchema = z.object({
+  path: z.string().min(1).max(300),
+  content: z.string().max(100_000),
   readOnly: z.boolean().optional(),
 });
 
 export const submissionSchema = z.discriminatedUnion("mode", [
   z.object({
     mode: z.literal("debug"),
-    files: z.array(solutionFileSchema).min(1),
-    runHistory: z.array(runRecordSchema),
+    files: z.array(solutionFileSchema).min(1).max(20),
+    runHistory: z.array(runRecordSchema).max(100),
   }),
   z.object({
     mode: z.literal("review"),
-    comments: z.array(reviewCommentSchema),
+    comments: z.array(reviewCommentSchema).max(100),
   }),
   z.object({
     mode: z.literal("design"),
-    doc: z.string().min(1),
+    doc: z.string().min(1).max(100_000),
   }),
 ]);
 
 export const gradeBodySchema = z.object({
-  problemId: z.string().min(1),
-  sessionId: z.string().min(1),
+  problemId: z.string().min(1).max(128),
+  sessionId: z.string().min(1).max(128),
   submission: submissionSchema,
 });
 export type GradeBody = z.infer<typeof gradeBodySchema>;
 
 const chatMessageSchema = z.object({
   role: z.enum(["interviewer", "user"]),
-  content: z.string(),
+  content: z.string().max(10_000),
 });
 
 export const socraticBodySchema = z.object({
-  attemptId: z.string().min(1),
-  history: z.array(chatMessageSchema).default([]),
-  userMessage: z.string().optional(),
+  attemptId: z.string().min(1).max(128),
+  history: z.array(chatMessageSchema).max(40).default([]),
+  userMessage: z.string().max(4_000).optional(),
 });
 export type SocraticBody = z.infer<typeof socraticBodySchema>;
+
+/** POST /api/hint — bounded in-progress work sent to the hint model. */
+export const hintBodySchema = z.object({
+  problemId: z.string().min(1).max(128),
+  files: z.array(solutionFileSchema).max(20).optional(),
+  // Kept for old single-file clients; the solve UI now sends `files`.
+  code: z.string().max(100_000).optional(),
+  output: z.string().max(50_000).optional(),
+  diffText: z.string().max(200_000).optional(),
+  doc: z.string().max(100_000).optional(),
+  history: z.array(chatMessageSchema).max(40).default([]),
+  userMessage: z.string().max(4_000).optional(),
+});
+export type HintBody = z.infer<typeof hintBodySchema>;
 
 /** POST /api/jd/match — a pasted job description, matched against the bank. */
 export const jdMatchBodySchema = z.object({

@@ -22,6 +22,7 @@ export function InterviewerPanel({
   footer,
   suggestions = [],
   placeholder = "Ask the interviewer…",
+  className,
 }: {
   role: string;
   messages: ChatMessage[];
@@ -30,6 +31,7 @@ export function InterviewerPanel({
   footer: string;
   suggestions?: string[];
   placeholder?: string;
+  className?: string;
 }) {
   const [draft, setDraft] = useState("");
   const chatRef = useRef<HTMLDivElement>(null);
@@ -91,7 +93,7 @@ export function InterviewerPanel({
   const showTyping = busy && (!lastMsg || lastMsg.role !== "interviewer" || lastMsg.content === "");
 
   return (
-    <div className={styles.ai}>
+    <div className={`${styles.ai} ${className ?? ""}`}>
       <div className={styles.head}>
         <div className={styles.av}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="#180b03" aria-hidden>

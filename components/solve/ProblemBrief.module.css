@@ -150,3 +150,17 @@
   border-radius: 20px;
   padding: 2px 10px;
 }
+
+@media (max-width: 640px) {
+  .body {
+    max-height: 34dvh;
+    overflow-y: auto;
+    padding-inline: 12px;
+  }
+  .header {
+    padding-inline: 12px;
+  }
+  .symptom {
+    padding: 10px 12px;
+  }
+}
