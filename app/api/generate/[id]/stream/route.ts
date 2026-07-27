@@ -22,7 +22,7 @@ const MAX_WAIT_MS = 10 * 60_000;
  *   {"type":"done","problemId":"clx…"}
  *   {"type":"error","message":"…"}
  */
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const encoder = new TextEncoder();
 
@@ -34,6 +34,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
       try {
         for (;;) {
+          if (req.signal.aborted) return;
           const job = await prisma.generationJob.findUnique({
             where: { id },
             select: { status: true, note: true, problemId: true, error: true },
@@ -65,7 +66,16 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
             return;
           }
 
-          await new Promise((r) => setTimeout(r, POLL_MS));
+          await new Promise<void>((resolve) => {
+            let timer: ReturnType<typeof setTimeout>;
+            const done = () => {
+              clearTimeout(timer);
+              req.signal.removeEventListener("abort", done);
+              resolve();
+            };
+            timer = setTimeout(done, POLL_MS);
+            req.signal.addEventListener("abort", done, { once: true });
+          });
         }
       } catch (err) {
         send({ type: "error", message: err instanceof Error ? err.message : String(err) });

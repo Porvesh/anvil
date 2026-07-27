@@ -13,6 +13,7 @@ import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { anthropic } from "./client";
 import { callParams } from "./models";
+import { modelRequestOptions } from "./reliability";
 import type { AnswerKeyIssue, Problem, ReviewComment, RunRecord, SolutionFile } from "../types";
 
 // --- structured output schemas ---
@@ -98,6 +99,7 @@ export async function judgeReview(
   /** Ids of seeded issues the matcher scored as caught / missed — the headline
    *  and summary MUST reflect this outcome, not just the unmatched comments. */
   outcome: { caughtIds: string[]; missedIds: string[] },
+  signal?: AbortSignal,
 ): Promise<ReviewJudgment> {
   const diffText = (problem.diff ?? [])
     .flatMap((h) => h.lines.map((l) => `${l.lineNo ?? ""}\t${l.kind === "add" ? "+" : l.kind === "del" ? "-" : " "}${l.content}`))
@@ -167,7 +169,7 @@ export async function judgeReview(
       },
     ],
     output_config: { format: zodOutputFormat(ReviewJudgmentSchema) },
-  });
+  }, modelRequestOptions("judgeReview", signal));
 
   return result.parsed_output ?? { headline: "Review graded", summary: "", assessments: [] };
 }
@@ -184,7 +186,7 @@ function renderRubric(answerKey: AnswerKeyIssue[]): string {
     .join("\n");
 }
 
-export async function judgeDesign(problem: Problem, doc: string): Promise<DesignJudgment> {
+export async function judgeDesign(problem: Problem, doc: string, signal?: AbortSignal): Promise<DesignJudgment> {
   const system = problemContext(
     [
       "You are grading a system-design exercise against a seeded rubric. The rubric below is ground truth.",
@@ -215,7 +217,7 @@ export async function judgeDesign(problem: Problem, doc: string): Promise<Design
       },
     ],
     output_config: { format: zodOutputFormat(DesignJudgmentSchema) },
-  });
+  }, modelRequestOptions("judgeDesign", signal));
 
   return (
     result.parsed_output ?? {
@@ -241,6 +243,7 @@ export async function judgeDebug(
   finalFiles: SolutionFile[],
   runHistory: RunRecord[],
   testsPassed: boolean,
+  signal?: AbortSignal,
 ): Promise<DebugJudgment> {
   const system = problemContext(
     [
@@ -282,7 +285,7 @@ export async function judgeDebug(
       },
     ],
     output_config: { format: zodOutputFormat(DebugJudgmentSchema) },
-  });
+  }, modelRequestOptions("judgeDebug", signal));
 
   return (
     result.parsed_output ?? {

@@ -47,7 +47,7 @@ export async function POST(req: Request) {
   let resolvedDifficulty = difficulty;
   if (jd) {
     try {
-      const analysis = await analyzeJd(jd);
+      const analysis = await analyzeJd(jd, req.signal);
       tags = analysis.tags;
       resolvedDifficulty = difficulty ?? difficultyFor(analysis.seniority);
     } catch {

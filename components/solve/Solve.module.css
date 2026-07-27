@@ -28,6 +28,13 @@
   margin: 0;
   min-width: 0;
 }
+.draftStatus {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--steel-dim);
+  white-space: nowrap;
+}
 .grow {
   flex: 1;
 }
@@ -115,6 +122,9 @@
     overflow: hidden;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
+  }
+  .draftStatus {
+    display: none;
   }
   .submit,
   .hintbtn {

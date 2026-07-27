@@ -8,40 +8,54 @@ export interface StreamHandlers {
   onError?: (message: string) => void;
 }
 
-export async function streamSSE(url: string, body: unknown, handlers: StreamHandlers): Promise<void> {
+export interface StreamOptions {
+  signal?: AbortSignal;
+}
+
+export async function streamSSE(
+  url: string,
+  body: unknown,
+  handlers: StreamHandlers,
+  options: StreamOptions = {},
+): Promise<void> {
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal: options.signal,
   });
 
   if (!res.ok || !res.body) {
-    handlers.onError?.(`Request failed (${res.status})`);
-    return;
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.error ?? `Request failed (${res.status})`);
   }
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
 
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
 
-    let sep: number;
-    while ((sep = buffer.indexOf("\n\n")) >= 0) {
-      const frame = buffer.slice(0, sep);
-      buffer = buffer.slice(sep + 2);
-      const dataLine = frame.split("\n").find((l) => l.startsWith("data:"));
-      if (!dataLine) continue;
-      try {
-        const payload = JSON.parse(dataLine.slice(5).trim());
-        if (payload.type === "delta") handlers.onDelta(payload.text);
-        else if (payload.type === "error") handlers.onError?.(payload.message);
-      } catch {
-        // ignore malformed frame
+      let sep: number;
+      while ((sep = buffer.indexOf("\n\n")) >= 0) {
+        const frame = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        const dataLine = frame.split("\n").find((l) => l.startsWith("data:"));
+        if (!dataLine) continue;
+        try {
+          const payload = JSON.parse(dataLine.slice(5).trim());
+          if (payload.type === "delta") handlers.onDelta(payload.text);
+          else if (payload.type === "error") handlers.onError?.(payload.message);
+        } catch {
+          // Ignore a malformed frame and keep consuming later valid events.
+        }
       }
     }
+  } finally {
+    reader.releaseLock();
   }
 }

@@ -1,6 +1,8 @@
 // Anvil data model (spec §7, §11).
 //
-// Local dev runs on SQLite for zero setup; production runs Postgres. Enum-like
+// Local dev runs on SQLite for zero setup; the production target is Postgres.
+// The checked-in datasource is still SQLite, so the migration must be exercised
+// before deployment. Enum-like
 // columns are plain strings and structured blobs are `Json` (TEXT on SQLite,
 // jsonb on Postgres), which is the whole portability story — the models below
 // are identical on both engines.
@@ -30,7 +32,7 @@ model Problem {
   title  String // short headline shown in the bank + solve header
   prompt String // the symptom (debug), PR description (review), or design ask
 
-  jdContext String? // nullable; the JD this problem was tailored from
+  jdContext String? // legacy nullable column; new generation never persists a JD here
 
   // --- mode-specific content ---
   starterCode String? // debug: legacy single-file source (superseded by `files`)
@@ -110,8 +112,8 @@ model Vote {
 /// FOR UPDATE SKIP LOCKED, which is a fine queue at this volume and costs zero
 /// new services.
 ///
-/// It is also the only place a pasted job description lives once B8 lands
-/// (INV-12) — see the retention decision in lib/worker/queue.ts.
+/// It is also the only place a pasted job description lives (INV-12). The queue
+/// clears it on every terminal state; see lib/worker/queue.ts.
 model GenerationJob {
   id        String @id @default(cuid())
   sessionId String
@@ -153,7 +155,7 @@ model Attempt {
   problem   Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
   sessionId String
 
-  submission Json // debug: { code }; review: ReviewComment[] {line, body}
+  submission Json // debug: {files}; review: ReviewComment[]; design: {doc}
   runHistory Json? // debug: RunRecord[] {passed, failed, output, at}
   grade      Json? // Grade: {score, caught, missed, falsePositives, dimensionScores}
   transcript Json? // ChatMessage[] from the Socratic follow-up

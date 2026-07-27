@@ -11,6 +11,7 @@ import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { anthropic } from "./client";
 import { callParams } from "./models";
+import { modelRequestOptions } from "./reliability";
 import { FIXED_VOCAB, TagSchema, parseTags, type Tag } from "../tags";
 
 const JdTagsSchema = z.object({
@@ -62,7 +63,7 @@ export function difficultyFor(seniority: JdAnalysis["seniority"]): "easy" | "med
  * returned to any other client (INV-12) — matching reads only the tags it
  * produces.
  */
-export async function analyzeJd(jd: string): Promise<JdAnalysis> {
+export async function analyzeJd(jd: string, signal?: AbortSignal): Promise<JdAnalysis> {
   const result = await anthropic.messages.create({
     ...callParams("jdMatch"),
     system: [
@@ -86,7 +87,7 @@ export async function analyzeJd(jd: string): Promise<JdAnalysis> {
     ],
     messages: [{ role: "user", content: `JOB DESCRIPTION:\n\n${jd}` }],
     output_config: { format: JD_FORMAT },
-  });
+  }, modelRequestOptions("jdMatch", signal));
 
   const text = result.content
     .filter((block): block is Extract<typeof block, { type: "text" }> => block.type === "text")

@@ -70,6 +70,17 @@
 .dots span:nth-child(3) {
   animation-delay: 0.3s;
 }
+.cancel {
+  color: var(--steel);
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  padding: 6px 11px;
+  font-size: 12px;
+}
+.cancel:hover {
+  color: var(--parchment);
+  border-color: var(--steel-dim);
+}
 @keyframes bounce {
   50% {
     opacity: 0.3;
