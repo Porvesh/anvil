@@ -18,9 +18,20 @@
 npm install
 npm run db:migrate        # create the local SQLite db
 npm run seed              # load the hand-authored problem bank
-echo 'ANTHROPIC_API_KEY=sk-ant-…' >> .env   # grading + interviewer need it
+cp .env.example .env
+# Set BYOK_ENCRYPTION_KEY; ANTHROPIC_API_KEY is only needed by generation/maintenance scripts.
 npm run dev               # → http://localhost:3000
 ```
+
+Open **Connect key** in the top bar to use grading, hints, Socratic follow-up,
+or JD matching. The user-owned Anthropic key is validated once, encrypted into
+an eight-hour HttpOnly cookie, and never stored in Prisma or browser-readable
+storage. Claude subscriptions do not include API access; the key must come from
+an API-enabled Anthropic Console account.
+
+Public browser traffic cannot invoke the operator-funded generation pipeline.
+Bank generation uses `ANTHROPIC_API_KEY` only through CLI/worker workflows or
+the bearer-protected `/api/generate` operator endpoint.
 
 ## Commands
 
@@ -43,6 +54,6 @@ E2E_BASE_URL=http://localhost:3001 npm run e2e
 
 ## How it's put together
 
-The browser is the compute layer: Pyodide in a Web Worker runs untrusted Python and localStorage recovers active drafts. A thin Next.js backend serves stripped problem payloads, grades against the seeded key, and streams the interviewer over SSE. Prisma uses SQLite locally; PostgreSQL is the production target. Full details are in [ARCHITECTURE.md](ARCHITECTURE.md), with deployment limits in [SCALING.md](SCALING.md).
+The browser is the compute layer: Pyodide in a Web Worker runs untrusted Python and localStorage recovers active drafts. A thin Next.js backend serves stripped problem payloads, uses a request-scoped BYOK client to grade against the seeded key, and streams the interviewer over SSE. Prisma uses SQLite locally; PostgreSQL is the production target. Full details are in [ARCHITECTURE.md](ARCHITECTURE.md), with deployment limits in [SCALING.md](SCALING.md).
 
 *"Anvil" is a working title. The logo is a placeholder. The forge metaphor — hammering raw skill into shape under heat — is the point.*

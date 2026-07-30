@@ -8,8 +8,8 @@
  * silently fails.
  */
 import { z } from "zod";
+import type Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { anthropic } from "./client";
 import { callParams } from "./models";
 import { modelRequestOptions } from "./reliability";
 import { FIXED_VOCAB, TagSchema, parseTags, type Tag } from "../tags";
@@ -63,8 +63,8 @@ export function difficultyFor(seniority: JdAnalysis["seniority"]): "easy" | "med
  * returned to any other client (INV-12) — matching reads only the tags it
  * produces.
  */
-export async function analyzeJd(jd: string, signal?: AbortSignal): Promise<JdAnalysis> {
-  const result = await anthropic.messages.create({
+export async function analyzeJd(client: Anthropic, jd: string, signal?: AbortSignal): Promise<JdAnalysis> {
+  const result = await client.messages.create({
     ...callParams("jdMatch"),
     system: [
       {

@@ -12,6 +12,7 @@ jobs:
     timeout-minutes: 25
     env:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      BYOK_ENCRYPTION_KEY: ${{ secrets.BYOK_ENCRYPTION_KEY }}
       DATABASE_URL: file:./live-e2e.db
       E2E_BASE_URL: http://127.0.0.1:3000
     steps:

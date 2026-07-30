@@ -1,3 +1,5 @@
+import { notifyByokRequired } from "./byokClient";
+
 /**
  * Browser helper to POST JSON and consume an SSE response from our streaming
  * routes (/api/socratic, /api/hint). Parses `data: {json}\n\n` frames and
@@ -27,6 +29,7 @@ export async function streamSSE(
 
   if (!res.ok || !res.body) {
     const detail = await res.json().catch(() => null);
+    notifyByokRequired(detail?.code);
     throw new Error(detail?.error ?? `Request failed (${res.status})`);
   }
 
@@ -49,7 +52,10 @@ export async function streamSSE(
         try {
           const payload = JSON.parse(dataLine.slice(5).trim());
           if (payload.type === "delta") handlers.onDelta(payload.text);
-          else if (payload.type === "error") handlers.onError?.(payload.message);
+          else if (payload.type === "error") {
+            notifyByokRequired(payload.code);
+            handlers.onError?.(payload.message);
+          }
         } catch {
           // Ignore a malformed frame and keep consuming later valid events.
         }

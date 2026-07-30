@@ -119,17 +119,11 @@
 }
 .genNote::before {
   content: "";
-  width: 10px;
-  height: 10px;
+  width: 7px;
+  height: 7px;
+  flex: none;
   border-radius: 50%;
-  border: 2px solid var(--spark);
-  border-top-color: transparent;
-  animation: spin 0.7s linear infinite;
-}
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  background: var(--blue);
 }
 .genError {
   color: var(--red);

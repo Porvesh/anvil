@@ -5,6 +5,7 @@
  * colleague and physically can't leak ground truth.
  */
 import { ensureUserFirst, sseFromMessages, type ChatTurn } from "./stream";
+import type Anthropic from "@anthropic-ai/sdk";
 import type { ChatMessage, PublicProblem, SolutionFile } from "../types";
 
 const KICKOFF = "I'm working on this — give me a nudge toward the problem, not the answer.";
@@ -59,6 +60,7 @@ function toTurns(history: ChatMessage[]): ChatTurn[] {
 }
 
 export function streamHintSSE(
+  client: Anthropic,
   problem: PublicProblem,
   ctx: HintContext,
   history: ChatMessage[],
@@ -68,5 +70,5 @@ export function streamHintSSE(
   const turns: ChatTurn[] = toTurns(history);
   if (userMessage) turns.push({ role: "user", content: userMessage });
   const messages = ensureUserFirst(turns, KICKOFF);
-  return sseFromMessages("hint", buildSystem(problem, ctx), messages, undefined, signal);
+  return sseFromMessages(client, "hint", buildSystem(problem, ctx), messages, undefined, signal);
 }

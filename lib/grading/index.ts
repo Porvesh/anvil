@@ -15,6 +15,7 @@ import type {
   SolutionFile,
   Submission,
 } from "../types";
+import type Anthropic from "@anthropic-ai/sdk";
 import { CALLS } from "../anthropic/models";
 import { matchReviewComments } from "./matcher";
 import { judgeDebug, judgeDesign, judgeReview } from "../anthropic/grade";
@@ -46,17 +47,22 @@ export class SubmissionModeError extends Error {
  * produced it — if these drifted, a re-grade comparison would measure the drift
  * rather than the grading change it was meant to evaluate.
  */
-export async function gradeSubmission(problem: Problem, submission: Submission, signal?: AbortSignal): Promise<Grade> {
+export async function gradeSubmission(
+  client: Anthropic,
+  problem: Problem,
+  submission: Submission,
+  signal?: AbortSignal,
+): Promise<Grade> {
   if (submission.mode !== problem.type) {
     throw new SubmissionModeError(submission.mode, problem.type);
   }
   switch (submission.mode) {
     case "debug":
-      return gradeDebug(problem, submission.files, submission.runHistory, testsPassedFrom(submission.runHistory), signal);
+      return gradeDebug(client, problem, submission.files, submission.runHistory, testsPassedFrom(submission.runHistory), signal);
     case "review":
-      return gradeReview(problem, submission.comments, signal);
+      return gradeReview(client, problem, submission.comments, signal);
     case "design":
-      return gradeDesign(problem, submission.doc, signal);
+      return gradeDesign(client, problem, submission.doc, signal);
   }
 }
 
@@ -68,12 +74,13 @@ export async function gradeSubmission(problem: Problem, submission: Submission, 
 const FALSE_POSITIVE_PENALTY = 12;
 
 export async function gradeReview(
+  client: Anthropic,
   problem: Problem,
   comments: ReviewComment[],
   signal?: AbortSignal,
 ): Promise<Grade> {
   const { caught, missed, unmatched } = matchReviewComments(comments, problem.answerKey);
-  const judgment = await judgeReview(problem, unmatched, {
+  const judgment = await judgeReview(client, problem, unmatched, {
     caughtIds: caught.map((c) => c.issue.id),
     missedIds: missed.map((i) => i.id),
   }, signal);
@@ -204,8 +211,8 @@ const DIVERGENCE_THRESHOLD = 15;
  * about the *problem*, and belongs with the curation data rather than in front
  * of the user.
  */
-export async function gradeDesign(problem: Problem, doc: string, signal?: AbortSignal): Promise<Grade> {
-  const [first, second] = await Promise.all([judgeDesign(problem, doc, signal), judgeDesign(problem, doc, signal)]);
+export async function gradeDesign(client: Anthropic, problem: Problem, doc: string, signal?: AbortSignal): Promise<Grade> {
+  const [first, second] = await Promise.all([judgeDesign(client, problem, doc, signal), judgeDesign(client, problem, doc, signal)]);
 
   const total = problem.answerKey.length || 1;
   const addressedCount = (j: typeof first) =>
@@ -283,13 +290,14 @@ const OBJECTIVE_WEIGHT = 0.55;
 const APPROACH_WEIGHT = 0.45;
 
 export async function gradeDebug(
+  client: Anthropic,
   problem: Problem,
   finalFiles: SolutionFile[],
   runHistory: RunRecord[],
   testsPassed: boolean,
   signal?: AbortSignal,
 ): Promise<Grade> {
-  const judgment = await judgeDebug(problem, finalFiles, runHistory, testsPassed, signal);
+  const judgment = await judgeDebug(client, problem, finalFiles, runHistory, testsPassed, signal);
 
   const outcomes: IssueOutcome[] = problem.answerKey.map<IssueOutcome>((issue) => {
     const verdict = judgment.issues.find((i) => i.issueId === issue.id);

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { toPublicProblem } from "@/lib/problem";
 import { analyzeJd, difficultyFor } from "@/lib/anthropic/jd";
@@ -6,6 +6,8 @@ import { MATCH_THRESHOLD, parseTags, tagOverlap } from "@/lib/tags";
 import { wilsonScore } from "@/lib/curation";
 import { jdMatchBodySchema } from "@/lib/validation";
 import { clientKey, rateLimit } from "@/lib/ratelimit";
+import { byokRequiredResponse, userAnthropicFromRequest } from "@/lib/anthropic/byok";
+import { classifyModelError } from "@/lib/anthropic/reliability";
 
 export const runtime = "nodejs";
 
@@ -21,21 +23,22 @@ const MAX_MATCHES = 3;
  * is served for free. Without this step every user pays full generation price
  * forever and the bank never becomes anything.
  *
- * It answers only "what does the bank already have" — generation is a separate
- * call the client makes on a miss, so this route never blocks on a model
- * writing code.
+ * It answers only "what does the bank already have". Public matching never
+ * invokes the separately authenticated operator generation pipeline.
  */
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   const limit = rateLimit(clientKey(req));
   if (!limit.ok) {
     return NextResponse.json({ error: "Rate limit exceeded — try again shortly." }, { status: 429 });
   }
+  const client = userAnthropicFromRequest(req);
+  if (!client) return byokRequiredResponse();
 
   const parsed = jdMatchBodySchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid request", details: parsed.error.flatten() }, { status: 400 });
   }
-  const { jd, sessionId } = parsed.data;
+  const { jd, sessionId, type, difficulty } = parsed.data;
 
   // A tagging failure degrades to "the bank has nothing for this JD" rather than
   // an error: the client already handles an empty match list by offering the
@@ -43,8 +46,9 @@ export async function POST(req: Request) {
   // perfectly good fallback.
   let tags, seniority;
   try {
-    ({ tags, seniority } = await analyzeJd(jd, req.signal));
-  } catch {
+    ({ tags, seniority } = await analyzeJd(client, jd, req.signal));
+  } catch (error) {
+    if (classifyModelError(error, "matching").code === "configuration") return byokRequiredResponse();
     return NextResponse.json({ tags: [], seniority: "mid", confidence: 0, matches: [] });
   }
 
@@ -64,10 +68,12 @@ export async function POST(req: Request) {
     where: {
       retired: false,
       id: { notIn: attempted.map((a) => a.problemId) },
+      ...(type ? { type } : {}),
+      ...(difficulty ? { difficulty } : {}),
     },
   });
 
-  const preferred = difficultyFor(seniority);
+  const preferred = difficulty ?? difficultyFor(seniority);
   const ranked = candidates
     .map((row) => ({ row, overlap: tagOverlap(tags, parseTags(row.tags)) }))
     .filter((c) => c.overlap >= MATCH_THRESHOLD)

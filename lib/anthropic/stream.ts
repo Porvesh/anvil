@@ -10,7 +10,7 @@
  *
  * SSE payloads: `data: {"type":"delta","text":"..."}` … `data: {"type":"done"}`.
  */
-import { anthropic } from "./client";
+import type Anthropic from "@anthropic-ai/sdk";
 import { callParams, type CallSite } from "./models";
 import { classifyModelError, isAbortError, modelRequestOptions } from "./reliability";
 
@@ -35,6 +35,7 @@ export function ensureUserFirst(turns: ChatTurn[], kickoff: string): ChatTurn[] 
 type SystemPrefix = { type: "text"; text: string; cache_control: { type: "ephemeral" } }[];
 
 export function sseFromMessages(
+  client: Anthropic,
   site: CallSite,
   system: SystemPrefix,
   messages: ChatTurn[],
@@ -56,7 +57,7 @@ export function sseFromMessages(
       };
       try {
         let full = "";
-        const stream = anthropic.messages.stream({
+        const stream = client.messages.stream({
           ...callParams(site),
           system,
           messages,
