@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import type { CallSite } from "./models";
 
 const TIMEOUT_MS: Record<CallSite, number> = {
@@ -46,6 +47,7 @@ export interface ModelErrorInfo {
 export function isAbortError(error: unknown): boolean {
   return (
     error instanceof Anthropic.APIUserAbortError ||
+    error instanceof OpenAI.APIUserAbortError ||
     (error instanceof DOMException && error.name === "AbortError") ||
     (error instanceof Error && error.name === "AbortError")
   );
@@ -56,7 +58,7 @@ export function classifyModelError(error: unknown, action: "grading" | "intervie
   if (isAbortError(error)) {
     return { code: "cancelled", message: "Request cancelled.", retryable: false, status: 499 };
   }
-  if (error instanceof Anthropic.APIConnectionTimeoutError) {
+  if (error instanceof Anthropic.APIConnectionTimeoutError || error instanceof OpenAI.APIConnectionTimeoutError) {
     return {
       code: "timeout",
       message: `${action === "interviewer" ? "The interviewer" : action === "matching" ? "Job matching" : "Grading"} took too long. Your work is safe; try again.`,
@@ -65,14 +67,19 @@ export function classifyModelError(error: unknown, action: "grading" | "intervie
     };
   }
 
-  const status = error instanceof Anthropic.APIError ? error.status : undefined;
+  const status =
+    error instanceof Anthropic.APIError || error instanceof OpenAI.APIError ? error.status : undefined;
   if (status === 429) {
     return { code: "busy", message: "The AI service is busy right now. Your work is safe; try again shortly.", retryable: true, status: 503 };
   }
   if (status === 401 || status === 403) {
     return { code: "configuration", message: "The AI service is not configured correctly.", retryable: false, status: 503 };
   }
-  if (error instanceof Anthropic.APIConnectionError || (typeof status === "number" && status >= 500)) {
+  if (
+    error instanceof Anthropic.APIConnectionError ||
+    error instanceof OpenAI.APIConnectionError ||
+    (typeof status === "number" && status >= 500)
+  ) {
     return {
       code: "unavailable",
       message: "The AI service is temporarily unavailable. Your work is safe; try again.",

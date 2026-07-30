@@ -12,6 +12,7 @@ import { execFile } from "node:child_process";
 import type { AnswerKeyIssue, DiffHunk, Problem, SolutionFile, TestSuite } from "../types";
 import { gradeDesign } from "../grading";
 import { anthropic } from "../anthropic/client";
+import { anthropicModelClient } from "../ai/client";
 
 /** Python program mirroring lib/pyodide/harness.ts (multi-file), reading a JSON
  *  payload {files, setup, cases} on stdin. */
@@ -187,9 +188,10 @@ export async function selfCheckDesign(problem: {
     type: "design",
   } as unknown as Problem;
 
+  const operatorClient = anthropicModelClient(anthropic);
   const [strong, weak] = await Promise.all([
-    gradeDesign(anthropic, asProblem, problem.strongAnswer),
-    gradeDesign(anthropic, asProblem, problem.weakAnswer),
+    gradeDesign(operatorClient, asProblem, problem.strongAnswer),
+    gradeDesign(operatorClient, asProblem, problem.weakAnswer),
   ]);
 
   const separation = strong.score - weak.score;

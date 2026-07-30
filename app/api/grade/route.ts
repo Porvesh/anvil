@@ -6,7 +6,7 @@ import { gradeBodySchema } from "@/lib/validation";
 import { clientKey, rateLimit } from "@/lib/ratelimit";
 import type { RunRecord } from "@/lib/types";
 import { classifyModelError, isAbortError } from "@/lib/anthropic/reliability";
-import { byokRequiredResponse, userAnthropicFromRequest } from "@/lib/anthropic/byok";
+import { byokRequiredResponse, userModelFromRequest } from "@/lib/anthropic/byok";
 
 export const runtime = "nodejs";
 
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
   if (!limit.ok) {
     return NextResponse.json({ error: "Rate limit exceeded — try again shortly." }, { status: 429 });
   }
-  const client = userAnthropicFromRequest(req);
+  const client = userModelFromRequest(req);
   if (!client) return byokRequiredResponse();
 
   const parsed = gradeBodySchema.safeParse(await req.json().catch(() => null));

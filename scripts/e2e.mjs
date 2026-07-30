@@ -6,14 +6,16 @@
 import os from "node:os";
 import { chromium } from "playwright";
 
-if (!process.env.ANTHROPIC_API_KEY && typeof process.loadEnvFile === "function") {
+if (!process.env.ANTHROPIC_API_KEY && !process.env.OPENAI_API_KEY && typeof process.loadEnvFile === "function") {
   try {
     process.loadEnvFile(".env");
   } catch {
     // CI injects the key directly; a missing local file is handled below.
   }
 }
-const E2E_API_KEY = process.env.ANTHROPIC_API_KEY;
+const E2E_PROVIDER = process.env.OPENAI_API_KEY && !process.env.ANTHROPIC_API_KEY ? "openai" : "anthropic";
+const E2E_API_KEY = E2E_PROVIDER === "openai" ? process.env.OPENAI_API_KEY : process.env.ANTHROPIC_API_KEY;
+const E2E_PROVIDER_LABEL = E2E_PROVIDER === "openai" ? "OpenAI" : "Anthropic";
 
 const BASE = (process.env.E2E_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
 // Screenshot target — was a hardcoded per-session temp dir from the machine the
@@ -150,11 +152,12 @@ async function main() {
   const heroOk = await page.getByText("Catch the bad PR").isVisible();
   log(heroOk ? "✓ home renders" : "✗ home hero missing");
   if (!heroOk) return fail("home did not render");
-  if (!E2E_API_KEY) return fail("ANTHROPIC_API_KEY is required for the live BYOK E2E run");
-  await page.getByRole("button", { name: "Connect Anthropic API key" }).click();
-  await page.getByLabel("API key", { exact: true }).fill(E2E_API_KEY);
+  if (!E2E_API_KEY) return fail("ANTHROPIC_API_KEY or OPENAI_API_KEY is required for the live BYOK E2E run");
+  await page.getByRole("button", { name: "Connect an AI provider key" }).click();
+  if (E2E_PROVIDER === "openai") await page.getByRole("button", { name: "OpenAI" }).click();
+  await page.getByLabel(`${E2E_PROVIDER_LABEL} API key`).fill(E2E_API_KEY);
   await page.getByRole("button", { name: "Connect key", exact: true }).click();
-  await page.getByRole("button", { name: "Anthropic API key connected" }).waitFor({ timeout: 20000 });
+  await page.getByRole("button", { name: `${E2E_PROVIDER_LABEL} API key connected` }).waitFor({ timeout: 20000 });
   const byokCookie = (await page.context().cookies(BASE)).find((cookie) => cookie.name === "anvil_byok");
   if (!byokCookie?.httpOnly || byokCookie.sameSite !== "Strict") {
     return fail("BYOK cookie is missing HttpOnly or SameSite=Strict protection");
@@ -162,7 +165,7 @@ async function main() {
   if (byokCookie.value.includes(E2E_API_KEY) || (await page.evaluate(() => document.cookie.includes("anvil_byok")))) {
     return fail("BYOK credential is browser-readable");
   }
-  log("✓ user-owned Anthropic key connected for this browser session");
+  log(`✓ user-owned ${E2E_PROVIDER_LABEL} key connected for this browser session`);
   await assertNoGroundTruthLeak(debug.id);
 
   // ---------- DEBUG SOLVE ----------

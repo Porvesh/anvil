@@ -8,8 +8,8 @@
  * silently fails.
  */
 import { z } from "zod";
-import type Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+import { structuredModelOutput, type ModelClient } from "../ai/client";
 import { callParams } from "./models";
 import { modelRequestOptions } from "./reliability";
 import { FIXED_VOCAB, TagSchema, parseTags, type Tag } from "../tags";
@@ -63,29 +63,46 @@ export function difficultyFor(seniority: JdAnalysis["seniority"]): "easy" | "med
  * returned to any other client (INV-12) — matching reads only the tags it
  * produces.
  */
-export async function analyzeJd(client: Anthropic, jd: string, signal?: AbortSignal): Promise<JdAnalysis> {
-  const result = await client.messages.create({
+export async function analyzeJd(client: ModelClient, jd: string, signal?: AbortSignal): Promise<JdAnalysis> {
+  const system = [
+    "You label job descriptions with engineering-concern tags, for matching against a bank of",
+    "debugging, code-review, and system-design practice problems.",
+    "",
+    "Pick tags for what the person will actually spend their time on — the failure modes and systems",
+    "the role implies — not for every technology the posting name-drops. A payments role is about",
+    "idempotency, retries, and transactions whether or not it uses those words. Ignore benefits,",
+    "culture, and location entirely.",
+    "",
+    `Allowed tags (use ONLY these): ${FIXED_VOCAB.join(", ")}.`,
+  ].join("\n");
+  const user = `JOB DESCRIPTION:\n\n${jd}`;
+
+  if (client.provider === "openai") {
+    const parsed = await structuredModelOutput(
+      client,
+      "jdMatch",
+      JdTagsSchema,
+      "job_description_tags",
+      system,
+      user,
+      { tags: [], seniority: "mid" },
+      signal,
+    );
+    return { tags: parseTags(parsed.tags), seniority: asSeniority(parsed.seniority) };
+  }
+
+  const result = await client.sdk.messages.create({
     ...callParams("jdMatch"),
     system: [
       {
         type: "text",
-        text: [
-          "You label job descriptions with engineering-concern tags, for matching against a bank of",
-          "debugging, code-review, and system-design practice problems.",
-          "",
-          "Pick tags for what the person will actually spend their time on — the failure modes and systems",
-          "the role implies — not for every technology the posting name-drops. A payments role is about",
-          "idempotency, retries, and transactions whether or not it uses those words. Ignore benefits,",
-          "culture, and location entirely.",
-          "",
-          `Allowed tags (use ONLY these): ${FIXED_VOCAB.join(", ")}.`,
-        ].join("\n"),
+        text: system,
         // The vocabulary is a large, byte-stable prefix reused by every JD, so
         // it's worth a cache breakpoint; the pasted JD varies and comes after.
         cache_control: { type: "ephemeral" },
       },
     ],
-    messages: [{ role: "user", content: `JOB DESCRIPTION:\n\n${jd}` }],
+    messages: [{ role: "user", content: user }],
     output_config: { format: JD_FORMAT },
   }, modelRequestOptions("jdMatch", signal));
 

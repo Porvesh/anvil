@@ -66,15 +66,24 @@ async function main() {
   let holdGrade = false;
   let releaseGrade;
   let byokConnected = false;
+  let byokProvider = null;
   let generationRequests = 0;
   await page.route("**/api/byok", async (route) => {
     const method = route.request().method();
-    if (method === "POST") byokConnected = true;
-    if (method === "DELETE") byokConnected = false;
+    if (method === "POST") {
+      const payload = route.request().postDataJSON();
+      if (payload.provider !== "openai") throw new Error("BYOK did not send the selected OpenAI provider.");
+      byokConnected = true;
+      byokProvider = payload.provider;
+    }
+    if (method === "DELETE") {
+      byokConnected = false;
+      byokProvider = null;
+    }
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ connected: byokConnected, expiresAt: byokConnected ? Date.now() + 60_000 : null }),
+      body: JSON.stringify({ connected: byokConnected, provider: byokProvider, expiresAt: byokConnected ? Date.now() + 60_000 : null }),
     });
   });
   await page.route("**/api/grade", async (route) => {
@@ -111,13 +120,14 @@ async function main() {
 
   // The global BYOK control connects without retaining the plaintext in browser storage.
   await page.goto(BASE, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: "Connect Anthropic API key" }).click();
-  await page.getByLabel("API key", { exact: true }).fill("sk-ant-api03-deterministic-smoke-key");
+  await page.getByRole("button", { name: "Connect an AI provider key" }).click();
+  await page.getByRole("button", { name: "OpenAI" }).click();
+  await page.getByLabel("OpenAI API key").fill("sk-proj-deterministic-smoke-key");
   await page.getByRole("button", { name: "Connect key", exact: true }).click();
-  await page.getByRole("button", { name: "Anthropic API key connected" }).waitFor();
+  await page.getByRole("button", { name: "OpenAI API key connected" }).waitFor();
   const leakedKey = await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }).includes("deterministic-smoke-key"));
   if (leakedKey) throw new Error("BYOK plaintext leaked into browser-readable storage.");
-  log("✓ BYOK connection is global and keeps plaintext out of browser storage");
+  log("✓ provider-selectable BYOK is global and keeps plaintext out of browser storage");
 
   await page.getByRole("button", { name: /Match me a problem/ }).click();
   await page.waitForURL(new RegExp(`/solve/${debug.id}$`));

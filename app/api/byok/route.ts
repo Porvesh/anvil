@@ -1,5 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { type NextRequest, NextResponse } from "next/server";
+import { validateUserKey, type AiProvider } from "@/lib/ai/client";
 import {
   BYOK_COOKIE,
   BYOK_MAX_AGE_SECONDS,
@@ -7,7 +9,6 @@ import {
   readByokSession,
   sealApiKey,
   secureCookieFor,
-  validateAnthropicKey,
 } from "@/lib/anthropic/byok";
 import { clientKey, rateLimit } from "@/lib/ratelimit";
 
@@ -18,7 +19,7 @@ const NO_STORE = { "Cache-Control": "no-store" };
 export async function GET(req: NextRequest) {
   const session = readByokSession(req);
   return NextResponse.json(
-    { connected: Boolean(session), expiresAt: session?.expiresAt ?? null },
+    { connected: Boolean(session), provider: session?.provider ?? null, expiresAt: session?.expiresAt ?? null },
     { headers: NO_STORE },
   );
 }
@@ -31,15 +32,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Too many key checks. Try again shortly." }, { status: 429, headers: NO_STORE });
   }
 
-  const body = (await req.json().catch(() => null)) as { apiKey?: unknown } | null;
+  const body = (await req.json().catch(() => null)) as { provider?: unknown; apiKey?: unknown } | null;
+  const provider = body?.provider === "anthropic" || body?.provider === "openai" ? body.provider : null;
   const apiKey = typeof body?.apiKey === "string" ? body.apiKey.trim() : "";
-  if (!apiKey.startsWith("sk-ant-") || apiKey.length < 24 || apiKey.length > 256 || /\s/.test(apiKey)) {
-    return NextResponse.json({ error: "Enter a valid Anthropic API key." }, { status: 400, headers: NO_STORE });
+  const validPrefix = provider === "anthropic" ? apiKey.startsWith("sk-ant-") : apiKey.startsWith("sk-");
+  if (!provider || !validPrefix || apiKey.length < 24 || apiKey.length > 512 || /\s/.test(apiKey)) {
+    return NextResponse.json({ error: "Enter a valid API key for the selected provider." }, { status: 400, headers: NO_STORE });
   }
 
   let sealed;
   try {
-    sealed = sealApiKey(apiKey);
+    sealed = sealApiKey(provider, apiKey);
   } catch {
     return NextResponse.json(
       { error: "BYOK is not configured on this deployment." },
@@ -48,18 +51,23 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    await validateAnthropicKey(apiKey, req.signal);
+    await validateUserKey(provider, apiKey, req.signal);
   } catch (error) {
-    if (error instanceof Anthropic.APIError && (error.status === 401 || error.status === 403)) {
-      return NextResponse.json({ error: "Anthropic rejected this API key." }, { status: 400, headers: NO_STORE });
+    const status =
+      error instanceof Anthropic.APIError || error instanceof OpenAI.APIError ? error.status : undefined;
+    if (status === 401 || status === 403) {
+      return NextResponse.json(
+        { error: `${provider === "anthropic" ? "Anthropic" : "OpenAI"} rejected this API key.` },
+        { status: 400, headers: NO_STORE },
+      );
     }
     return NextResponse.json(
-      { error: "Anthropic could not verify the key. Try again shortly." },
+      { error: `${provider === "anthropic" ? "Anthropic" : "OpenAI"} could not verify the key. Try again shortly.` },
       { status: 503, headers: NO_STORE },
     );
   }
 
-  const response = NextResponse.json({ connected: true, expiresAt: sealed.expiresAt }, { headers: NO_STORE });
+  const response = NextResponse.json({ connected: true, provider, expiresAt: sealed.expiresAt }, { headers: NO_STORE });
   response.cookies.set(BYOK_COOKIE, sealed.value, {
     httpOnly: true,
     secure: secureCookieFor(req),
@@ -75,7 +83,7 @@ export async function DELETE(req: NextRequest) {
   if (!isSameOrigin(req)) {
     return NextResponse.json({ error: "Cross-origin request rejected" }, { status: 403, headers: NO_STORE });
   }
-  const response = NextResponse.json({ connected: false, expiresAt: null }, { headers: NO_STORE });
+  const response = NextResponse.json({ connected: false, provider: null, expiresAt: null }, { headers: NO_STORE });
   response.cookies.set(BYOK_COOKIE, "", {
     httpOnly: true,
     secure: secureCookieFor(req),

@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { analyzeJd, difficultyFor } from "@/lib/anthropic/jd";
 import { anthropic } from "@/lib/anthropic/client";
+import { anthropicModelClient } from "@/lib/ai/client";
 import { generateBodySchema } from "@/lib/validation";
 import { clientKey, dailyLimit, rateLimit } from "@/lib/ratelimit";
 import { isGenerationAdmin } from "@/lib/adminAuth";
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest) {
   let resolvedDifficulty = difficulty;
   if (jd) {
     try {
-      const analysis = await analyzeJd(anthropic, jd, req.signal);
+      const analysis = await analyzeJd(anthropicModelClient(anthropic), jd, req.signal);
       tags = analysis.tags;
       resolvedDifficulty = difficulty ?? difficultyFor(analysis.seniority);
     } catch {

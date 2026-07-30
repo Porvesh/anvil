@@ -22,10 +22,24 @@ describe("BYOK session sealing", () => {
   it("round-trips a key without exposing it in the cookie", () => {
     const now = 1_800_000_000_000;
     const apiKey = "sk-ant-api03-user-owned-secret";
-    const sealed = sealApiKey(apiKey, now);
+    const sealed = sealApiKey("anthropic", apiKey, now);
 
     expect(sealed.value).not.toContain(apiKey);
     expect(unsealApiKey(sealed.value, now)).toEqual({
+      apiKey,
+      provider: "anthropic",
+      expiresAt: now + BYOK_MAX_AGE_SECONDS * 1000,
+    });
+  });
+
+  it("round-trips the selected OpenAI provider with the encrypted key", () => {
+    const now = 1_800_000_000_000;
+    const apiKey = "sk-proj-user-owned-openai-secret";
+    const sealed = sealApiKey("openai", apiKey, now);
+
+    expect(sealed.value).not.toContain(apiKey);
+    expect(unsealApiKey(sealed.value, now)).toEqual({
+      provider: "openai",
       apiKey,
       expiresAt: now + BYOK_MAX_AGE_SECONDS * 1000,
     });
@@ -33,7 +47,7 @@ describe("BYOK session sealing", () => {
 
   it("rejects tampered and expired cookies", () => {
     const now = 1_800_000_000_000;
-    const sealed = sealApiKey("sk-ant-api03-user-owned-secret", now);
+    const sealed = sealApiKey("anthropic", "sk-ant-api03-user-owned-secret", now);
     const parts = sealed.value.split(".");
     parts[2] = `${parts[2][0] === "a" ? "b" : "a"}${parts[2].slice(1)}`;
     const tampered = parts.join(".");
@@ -43,7 +57,7 @@ describe("BYOK session sealing", () => {
   });
 
   it("rejects cookies after an encryption-key rotation", () => {
-    const sealed = sealApiKey("sk-ant-api03-user-owned-secret");
+    const sealed = sealApiKey("anthropic", "sk-ant-api03-user-owned-secret");
     process.env.BYOK_ENCRYPTION_KEY = "a-different-test-encryption-key-at-least-32-chars";
     expect(unsealApiKey(sealed.value)).toBeNull();
   });

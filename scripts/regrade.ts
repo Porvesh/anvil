@@ -18,6 +18,7 @@ import { PrismaClient } from "@prisma/client";
 import { toProblem } from "../lib/problem";
 import { SubmissionModeError, gradeSubmission } from "../lib/grading";
 import { anthropic } from "../lib/anthropic/client";
+import { anthropicModelClient } from "../lib/ai/client";
 import type { Grade, ProblemType, ReviewComment, RunRecord, SolutionFile, Submission } from "../lib/types";
 
 const prisma = new PrismaClient();
@@ -50,6 +51,7 @@ function arrow(before: number, after: number): string {
 }
 
 async function main() {
+  const operatorClient = anthropicModelClient(anthropic);
   // Filtering in code rather than the query: `grade` is a Json column, so
   // "is not null" needs Prisma's JsonNull sentinels, and the attempt table is
   // small enough that it isn't worth the ceremony.
@@ -82,7 +84,7 @@ async function main() {
     }
 
     try {
-      const fresh = await gradeSubmission(anthropic, problem, submission);
+      const fresh = await gradeSubmission(operatorClient, problem, submission);
       const delta = fresh.score - old.score;
       if (delta !== 0) {
         moved++;

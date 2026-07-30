@@ -28,10 +28,10 @@ Next.js 16 App Router
   grading orchestration
   model request deadlines, retries, cancellation
         |
-        +---------------------> Anthropic API (user key for interactive calls)
-        |                       Opus: generation/design/Socratic
-        |                       Sonnet: debug/review judges + hints
-        |                       Haiku: constrained JD tags
+        +---------------------> Anthropic or OpenAI API (selected user key)
+        |                       strongest tier: design/Socratic
+        |                       balanced tier: debug/review judges
+        |                       efficient tier: hints/JD tags
         v
 Prisma
   SQLite in the checked-in local configuration
@@ -44,9 +44,9 @@ Prisma
 
 ### Selecting a problem
 
-The home page sends a pasted JD to `POST /api/jd/match`. Haiku extracts tags from the fixed vocabulary in `lib/tags.ts`. Existing problems are ranked by tag overlap, difficulty fit, and Wilson score.
+The home page sends a pasted JD to `POST /api/jd/match`. The selected provider's efficient model extracts tags from the fixed vocabulary in `lib/tags.ts`. Existing problems are ranked by tag overlap, difficulty fit, and Wilson score.
 
-Interactive model work requires a user-owned Anthropic API key. `POST /api/byok` verifies the key against the Models API, seals it with AES-256-GCM, and returns an eight-hour HttpOnly/SameSite cookie (`Secure` on HTTPS). AI routes decrypt it only for the current request and create an uncached client. There is no fallback to the operator key. The plaintext is never written to Prisma, localStorage, logs, or response bodies.
+Interactive model work requires a user-owned Anthropic or OpenAI API key. `POST /api/byok` verifies the key against the selected provider's Models API, seals the provider and key with AES-256-GCM, and returns an eight-hour HttpOnly/SameSite cookie (`Secure` on HTTPS). AI routes decrypt it only for the current request and create an uncached provider client. There is no fallback to the operator key. The plaintext is never written to Prisma, localStorage, logs, or response bodies. OpenAI Responses API calls set `store: false`.
 
 The user always enters an existing bank problem. Public browser traffic never starts generation: that asynchronous path cannot use a transient user key without persisting it, so `POST /api/generate` requires a separate operator bearer token. Bank expansion happens through explicit operator/CLI workflows rather than unbounded visitor spend.
 
@@ -63,9 +63,9 @@ The user always enters an existing bank problem. Public browser traffic never st
 
 `POST /api/grade` validates the submission, loads the internal problem, and dispatches by mode:
 
-- **Review:** deterministic file/line/anchor matching establishes recall. Sonnet judges unmatched comments and may rescue a conceptually correct off-line comment.
-- **Debug:** the last run supplies the objective test result. Sonnet judges root-cause quality; the code combines 55% objective result and 45% approach quality.
-- **Design:** two Opus judgments are averaged. Divergence above the threshold flags the rubric for curation.
+- **Review:** deterministic file/line/anchor matching establishes recall. The provider's balanced judge handles unmatched comments and may rescue a conceptually correct off-line comment.
+- **Debug:** the last run supplies the objective test result. The balanced judge assesses root-cause quality; the code combines 55% objective result and 45% approach quality.
+- **Design:** two strongest-tier judgments are averaged. Divergence above the threshold flags the rubric for curation.
 
 The route stores `Attempt`, atomically increments `Problem.timesAttempted`, and returns `{attemptId, grade}`. `/api/socratic` reloads the persisted attempt and hidden key, streams one question, and persists the transcript.
 
@@ -130,7 +130,7 @@ All model-bound payloads have explicit zod size limits. Rate limiting is a fixed
 
 ## 7. Model reliability
 
-`lib/anthropic/models.ts` owns model and thinking configuration. `lib/anthropic/reliability.ts` independently owns operational policy:
+`lib/ai/client.ts` owns the provider adapter and OpenAI model routing; `lib/anthropic/models.ts` owns Anthropic routing and operator-generation configuration. `lib/anthropic/reliability.ts` independently owns shared operational policy:
 
 | Call | Deadline | SDK retries |
 |---|---:|---:|

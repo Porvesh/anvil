@@ -6,7 +6,7 @@ import { MATCH_THRESHOLD, parseTags, tagOverlap } from "@/lib/tags";
 import { wilsonScore } from "@/lib/curation";
 import { jdMatchBodySchema } from "@/lib/validation";
 import { clientKey, rateLimit } from "@/lib/ratelimit";
-import { byokRequiredResponse, userAnthropicFromRequest } from "@/lib/anthropic/byok";
+import { byokRequiredResponse, userModelFromRequest } from "@/lib/anthropic/byok";
 import { classifyModelError } from "@/lib/anthropic/reliability";
 
 export const runtime = "nodejs";
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
   if (!limit.ok) {
     return NextResponse.json({ error: "Rate limit exceeded — try again shortly." }, { status: 429 });
   }
-  const client = userAnthropicFromRequest(req);
+  const client = userModelFromRequest(req);
   if (!client) return byokRequiredResponse();
 
   const parsed = jdMatchBodySchema.safeParse(await req.json().catch(() => null));

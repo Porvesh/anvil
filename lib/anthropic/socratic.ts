@@ -7,7 +7,7 @@
  * prefix (problem + answer key) and maps the transcript to message turns.
  */
 import { ensureUserFirst, sseFromMessages, type ChatTurn } from "./stream";
-import type Anthropic from "@anthropic-ai/sdk";
+import type { ModelClient } from "../ai/client";
 import type { ChatMessage, Grade, Problem } from "../types";
 
 const OPENING_KICKOFF =
@@ -58,7 +58,7 @@ function toTurns(history: ChatMessage[]): ChatTurn[] {
  * the user's latest reply to continue.
  */
 export function streamSocraticSSE(
-  client: Anthropic,
+  client: ModelClient,
   problem: Problem,
   grade: Grade,
   history: ChatMessage[],
