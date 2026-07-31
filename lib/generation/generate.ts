@@ -152,6 +152,59 @@ export async function generateDebug(difficulty: Difficulty, topic?: string, jd?:
   return streamStructured(GeneratedDebugSchema, system, user, model);
 }
 
+// --- Design ---
+
+const GeneratedDesignSchema = z.object({
+  title: z.string(),
+  prompt: z.string().describe("the design ask, as a realistic brief: the system, the scale, the constraints that matter"),
+  rubric: z
+    .array(
+      z.object({
+        id: z.string().describe("stable kebab-case id"),
+        severity: z.enum(["critical", "major", "minor"]).describe("how central this dimension is to a competent answer"),
+        failure: z.string().describe("the dimension, phrased as what goes wrong if the design ignores it"),
+        explanation: z.string().describe("what a strong answer actually engages with here — mechanisms and numbers, not vocabulary"),
+        keywords: z.array(z.string()).describe("lowercased signal words"),
+      }),
+    )
+    .describe("3-5 scoring dimensions covering what separates a senior answer from a junior one"),
+  tags: tagsField,
+
+  // The design-mode oracle (spec B7). Debug and review prove a flaw is real by
+  // executing it; design has nothing to execute, so instead it proves the
+  // *rubric discriminates* — score a strong and a deliberately weak answer and
+  // require them to land far apart. A rubric that rates both alike can't grade.
+  strongAnswer: z
+    .string()
+    .describe("a genuinely senior design doc for this brief: capacity math, named trade-offs argued both ways, failure modes reasoned through"),
+  weakAnswer: z
+    .string()
+    .describe("a plausible but shallow answer: correct-sounding vocabulary, no numbers, trade-offs named but never argued, no failure analysis. NOT obviously bad — it should read fine to a non-expert"),
+});
+export type GeneratedDesign = z.infer<typeof GeneratedDesignSchema>;
+
+export async function generateDesign(difficulty: Difficulty, topic?: string, jd?: string, model?: string): Promise<GeneratedDesign> {
+  const system = [
+    "You author system-design interview problems and the rubric used to grade them.",
+    "The brief should be concrete and scoped — a real system with real constraints, not 'design Twitter'.",
+    "The rubric is the product: each dimension must be gradeable from a written answer, and must distinguish",
+    "an engineer who has operated such a system from one who has read about it. Reward mechanisms, capacity",
+    "math, and trade-offs argued in both directions; never reward naming a technology.",
+    "",
+    "Also write two sample answers — a strong one and a shallow one that sounds plausible. They are used to",
+    "verify the rubric can actually tell them apart; a rubric that scores both alike is rejected.",
+  ].join("\n");
+  const user = [
+    `Difficulty: ${difficulty}.`,
+    topic ? `Topic: ${topic}.` : "",
+    jd ? `Tailor the domain and seniority to this job description:\n${jd}` : "",
+    "Produce one system-design problem with its rubric and the two sample answers.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return streamStructured(GeneratedDesignSchema, system, user, model);
+}
+
 // --- Review ---
 
 const GeneratedReviewSchema = z.object({

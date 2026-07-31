@@ -300,6 +300,17 @@ export interface Grade {
    * what makes a stored Attempt re-gradable and comparable across routings.
    */
   graderModel?: string;
+  /**
+   * Design only: how far apart the two ensemble judges landed, in points.
+   *
+   * This is a signal about the *problem*, not the submission — two competent
+   * judges disagreeing by 20 points on the same doc means the rubric is
+   * ambiguous. Recorded for curation; deliberately not shown to the user, who
+   * would reasonably read it as doubt about their own work.
+   */
+  judgeDivergence?: number;
+  /** Design only: divergence exceeded the threshold — the rubric needs review. */
+  rubricAmbiguous?: boolean;
   /** Debug only: did the objective test suite pass on the final submission. */
   testsPassed?: boolean;
   /** Design only (phase 2): per-dimension scores. */
