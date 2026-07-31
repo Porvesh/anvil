@@ -57,3 +57,12 @@ export const socraticBodySchema = z.object({
   userMessage: z.string().optional(),
 });
 export type SocraticBody = z.infer<typeof socraticBodySchema>;
+
+/** POST /api/jd/match — a pasted job description, matched against the bank. */
+export const jdMatchBodySchema = z.object({
+  // Bounded so a pasted novel can't run up the extraction bill; 12k characters
+  // is far more than any real posting.
+  jd: z.string().min(40, "Paste a bit more of the job description").max(12_000),
+  sessionId: z.string().min(1),
+});
+export type JdMatchBody = z.infer<typeof jdMatchBodySchema>;
