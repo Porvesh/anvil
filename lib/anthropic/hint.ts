@@ -63,9 +63,10 @@ export function streamHintSSE(
   ctx: HintContext,
   history: ChatMessage[],
   userMessage?: string,
+  signal?: AbortSignal,
 ): ReadableStream<Uint8Array> {
   const turns: ChatTurn[] = toTurns(history);
   if (userMessage) turns.push({ role: "user", content: userMessage });
   const messages = ensureUserFirst(turns, KICKOFF);
-  return sseFromMessages("hint", buildSystem(problem, ctx), messages);
+  return sseFromMessages("hint", buildSystem(problem, ctx), messages, undefined, signal);
 }

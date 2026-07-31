@@ -10,6 +10,7 @@ import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { anthropic } from "../anthropic/client";
 import { callParams, isRefusal } from "../anthropic/models";
+import { modelRequestOptions } from "../anthropic/reliability";
 import { TagSchema } from "../tags";
 import type { Difficulty } from "../types";
 
@@ -51,7 +52,7 @@ async function streamStructured<T extends z.ZodTypeAny>(
     output_config: { ...output_config, format: zodOutputFormat(schema) },
     system,
     messages: [{ role: "user", content: user }],
-  });
+  }, modelRequestOptions(site));
   let msg: Awaited<ReturnType<typeof stream.finalMessage>>;
   try {
     msg = await stream.finalMessage();

@@ -46,17 +46,17 @@ export class SubmissionModeError extends Error {
  * produced it — if these drifted, a re-grade comparison would measure the drift
  * rather than the grading change it was meant to evaluate.
  */
-export async function gradeSubmission(problem: Problem, submission: Submission): Promise<Grade> {
+export async function gradeSubmission(problem: Problem, submission: Submission, signal?: AbortSignal): Promise<Grade> {
   if (submission.mode !== problem.type) {
     throw new SubmissionModeError(submission.mode, problem.type);
   }
   switch (submission.mode) {
     case "debug":
-      return gradeDebug(problem, submission.files, submission.runHistory, testsPassedFrom(submission.runHistory));
+      return gradeDebug(problem, submission.files, submission.runHistory, testsPassedFrom(submission.runHistory), signal);
     case "review":
-      return gradeReview(problem, submission.comments);
+      return gradeReview(problem, submission.comments, signal);
     case "design":
-      return gradeDesign(problem, submission.doc);
+      return gradeDesign(problem, submission.doc, signal);
   }
 }
 
@@ -70,12 +70,13 @@ const FALSE_POSITIVE_PENALTY = 12;
 export async function gradeReview(
   problem: Problem,
   comments: ReviewComment[],
+  signal?: AbortSignal,
 ): Promise<Grade> {
   const { caught, missed, unmatched } = matchReviewComments(comments, problem.answerKey);
   const judgment = await judgeReview(problem, unmatched, {
     caughtIds: caught.map((c) => c.issue.id),
     missedIds: missed.map((i) => i.id),
-  });
+  }, signal);
 
   // The matcher decides catches by line number, which systematically
   // under-credits reviewers who comment at the conceptual site rather than the
@@ -203,8 +204,8 @@ const DIVERGENCE_THRESHOLD = 15;
  * about the *problem*, and belongs with the curation data rather than in front
  * of the user.
  */
-export async function gradeDesign(problem: Problem, doc: string): Promise<Grade> {
-  const [first, second] = await Promise.all([judgeDesign(problem, doc), judgeDesign(problem, doc)]);
+export async function gradeDesign(problem: Problem, doc: string, signal?: AbortSignal): Promise<Grade> {
+  const [first, second] = await Promise.all([judgeDesign(problem, doc, signal), judgeDesign(problem, doc, signal)]);
 
   const total = problem.answerKey.length || 1;
   const addressedCount = (j: typeof first) =>
@@ -286,8 +287,9 @@ export async function gradeDebug(
   finalFiles: SolutionFile[],
   runHistory: RunRecord[],
   testsPassed: boolean,
+  signal?: AbortSignal,
 ): Promise<Grade> {
-  const judgment = await judgeDebug(problem, finalFiles, runHistory, testsPassed);
+  const judgment = await judgeDebug(problem, finalFiles, runHistory, testsPassed, signal);
 
   const outcomes: IssueOutcome[] = problem.answerKey.map<IssueOutcome>((issue) => {
     const verdict = judgment.issues.find((i) => i.issueId === issue.id);

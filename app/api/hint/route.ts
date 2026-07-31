@@ -22,6 +22,6 @@ export async function POST(req: Request) {
   const row = await prisma.problem.findUnique({ where: { id: problemId } });
   if (!row) return NextResponse.json({ error: "Problem not found" }, { status: 404 });
 
-  const stream = streamHintSSE(toPublicProblem(row), { files, code, output, diffText, doc }, history, userMessage);
+  const stream = streamHintSSE(toPublicProblem(row), { files, code, output, diffText, doc }, history, userMessage, req.signal);
   return new Response(stream, { headers: SSE_HEADERS });
 }

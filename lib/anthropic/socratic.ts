@@ -62,9 +62,10 @@ export function streamSocraticSSE(
   history: ChatMessage[],
   userMessage?: string,
   onFinal?: (interviewerReply: string) => void | Promise<void>,
+  signal?: AbortSignal,
 ): ReadableStream<Uint8Array> {
   const turns: ChatTurn[] = toTurns(history);
   if (userMessage) turns.push({ role: "user", content: userMessage });
   const messages = ensureUserFirst(turns, OPENING_KICKOFF);
-  return sseFromMessages("socratic", buildSystem(problem, grade), messages, onFinal);
+  return sseFromMessages("socratic", buildSystem(problem, grade), messages, onFinal, signal);
 }

@@ -13,7 +13,7 @@ const STEPS = [
   "Preparing your follow-up questions…",
 ];
 
-export function GradingOverlay() {
+export function GradingOverlay({ onCancel }: { onCancel: () => void }) {
   const [step, setStep] = useState(0);
   useEffect(() => {
     const id = setInterval(() => setStep((s) => Math.min(s + 1, STEPS.length - 1)), 1600);
@@ -33,6 +33,7 @@ export function GradingOverlay() {
           <span />
           <span />
         </div>
+        <button className={styles.cancel} onClick={onCancel}>Cancel grading</button>
       </div>
     </div>
   );

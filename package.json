@@ -10,6 +10,7 @@
     "db:migrate": "prisma migrate dev",
     "generate:bank": "tsx scripts/generate-bank.ts",
     "test": "vitest run",
+    "e2e:smoke": "node scripts/e2e-smoke.mjs",
     "e2e": "node scripts/e2e.mjs",
     "regrade": "tsx scripts/regrade.ts",
     "backfill:tags": "tsx scripts/backfill-tags.ts",

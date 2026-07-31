@@ -1,71 +1,101 @@
-# Scaling Anvil across many users
+# Scaling Anvil
 
-How Anvil is built to serve a large, concurrent user base cheaply — and what changes at each order-of-magnitude. This is the "system design" view of the product itself.
+This document separates properties that already scale from deployment work that is still required.
 
-## The property that makes it scale: almost nothing runs on the server
+## Why the solve path is cheap
 
-The expensive work is pushed to the edges of the request path:
-
-| Work | Where it runs | Cost to us at scale |
+| Work | Location | Server cost |
 |---|---|---|
-| Running untrusted code | The **user's browser** (Pyodide/WASM in a Web Worker) | **$0** — no sandboxes to run, no per-execution compute, no security blast radius |
-| Editor, diff viewer, design canvas | The user's browser (Monaco, CDN-served) | $0 — static assets on a CDN |
-| Serving a problem | A DB read (answer key stripped) | one indexed row read |
-| Grading + Socratic | One Haiku call per submission | pennies, and rate-limited |
-| Generating problems | **Offline, batched, one-time** — never in the request path | amortized across every user who ever sees the problem |
+| Editing and diff interaction | Browser | Static application assets |
+| Python execution | Browser Pyodide Web Worker | None |
+| Draft recovery | Browser `localStorage` | None |
+| Loading a problem | Indexed database read | Low |
+| Grading | Model call(s) + attempt write | Variable |
+| Hint/Socratic turn | Streamed model call | Variable |
+| Generation | Separate worker, once per bank asset | Amortized |
 
-So a user solving a problem is, to our infrastructure, **two DB reads and (on submit) one cheap model call.** Ten thousand people solving concurrently is ten thousand people running Python on their own laptops. That is the whole trick.
+The web tier stores no live editor state and needs no session affinity. A candidate can run tests repeatedly without creating server work.
 
-## Request-path anatomy (per active solver)
+## Actual request path
 
+```text
+load problem      -> one DB read, hidden fields stripped
+run tests         -> browser only
+ask for hint      -> one Sonnet stream (optional)
+submit debug      -> one Sonnet judgment + transaction
+submit review     -> deterministic matcher + one Sonnet judgment + transaction
+submit design     -> two Opus judgments + transaction
+follow-up turn    -> one Opus stream (optional)
+vote              -> one transactional upsert/tally update
 ```
-page load        → 1 read  (GET /solve/[id] → problem row, answer key stripped)
-run tests        → 0 server (Pyodide in-browser, N times, free)
-ask for a hint   → 1 model call (Haiku, streamed, rate-limited)   [optional]
-submit           → 1 model call (Haiku grade) + 1 write (Attempt) + 1 atomic increment
-follow-up turn   → 1 model call (Haiku, streamed)                 [optional]
-rate the problem → 1 upsert + 1 atomic increment
-```
 
-Everything is **stateless** at the app tier (no session affinity, no server-side solve state), so the Next.js routes scale horizontally behind a load balancer with zero coordination. State lives in exactly two places: the DB, and the user's browser (`localStorage` session id).
+Drafts are browser-local. Persisted attempts, grades, votes, generation jobs, and the shared bank live in the database.
 
-## Bottlenecks, in the order they'd bite
+## Bottlenecks in order
 
-### 1. The single SQLite file (bites first, ~dozens of concurrent writers)
-Local dev uses SQLite. The schema is deliberately portable (string enums, `Json` columns), so production is a **one-line datasource swap to Postgres** (Neon/Supabase) + re-migrate — no model changes. Postgres gives us connection pooling (PgBouncer), read replicas, and real concurrency. **Bank reads** (the hot path) go to replicas; the primary only takes attempt writes and vote upserts.
+### 1. SQLite write concurrency
 
-### 2. Vote/attempt counters under concurrency (solved in the design)
-Naïve "read count, add one, write" races and loses votes under load. We never do that:
-- Tallies are **denormalized** onto `Problem` (`upvotes`, `downvotes`, `timesAttempted`) and mutated with **atomic `increment`** (`UPDATE … SET upvotes = upvotes + 1`) — correct under any concurrency, no row locks held across a round-trip.
-- Votes are **idempotent per session** via a `@@unique([problemId, sessionId])` constraint. Re-voting upserts; the delta math (`lib/curation.ts` `voteDeltas`) turns any transition (first vote / switch / toggle-off) into the right pair of increments. A user mashing the button can't inflate a count.
-- **Retirement** is a boolean flag, not a delete — flipping it is O(1), keeps history, and is reversible.
+The checked-in datasource is SQLite for zero-setup development. That is not the multi-instance production database. Before public deployment:
 
-### 3. Ranking the bank (in-code today, indexed tomorrow)
-Today the bank list computes the Wilson lower-bound rank in code over the result set — fine for hundreds–low-thousands of problems. The scale move is a stored, indexed `rankScore Float` column recomputed on each vote (inside the same atomic vote transaction), so the list endpoint becomes `WHERE retired = false … ORDER BY rankScore DESC LIMIT n` straight off the `@@index([retired, type, difficulty])`. Pure O(log n) + page size, and cursor-paginated. Random selection already uses `count` + random `skip` (two indexed queries), so "shuffle" doesn't load the table.
+1. Run `npm run db:postgres` on a branch.
+2. Regenerate PostgreSQL migrations rather than reusing SQLite SQL.
+3. Test worker claims, grading transactions, votes, and JD clearing under concurrency.
+4. Use a pooled application URL and a direct migration URL.
 
-### 4. Subsidized grading tokens (the only real variable cost)
-Grading is the one thing that costs money per use. Controls, cheapest-first:
-- **Prompt caching** on the stable problem+answer-key prefix — repeat grades of the same problem read the prefix at ~10% cost.
-- **Rate limiting** per session/IP. Today it's an in-memory fixed window (fine for one instance); at multi-instance scale it moves to **Upstash/Redis or Cloudflare KV** with the identical `rateLimit(key)` interface — the call sites don't change.
-- **BYOK** unlock for power users (spec §14) offloads token cost entirely for the heavy tail.
-- **Batch API** for generation halves that (already offline).
+The domain schema is portable by design, but the operational migration has not been completed merely because a rewrite script exists.
 
-### 5. Model provider limits
-All model calls are Haiku (grading/Socratic/hint) except offline Sonnet generation. Streaming responses keep connections short and avoid HTTP timeouts. If we approach org TPM limits, grading is a natural fit for a queue + graceful "grading is busy, retry" backpressure, since it's already async from the user's point of view.
+### 2. Per-process rate limits
 
-## How the community bank lets us stop leaning on the model
+`lib/ratelimit.ts` currently uses an in-memory `Map`. It is correct for local or one-instance deployments and ineffective across a fleet. The existing `Store.bump` boundary must be backed by Redis/KV before horizontal scaling. Generation's daily budget and interactive burst limits both need the shared store.
 
-Generation is a **one-time cost per problem**, but not every generated problem is good. The curation loop closes that:
+### 3. Model cost and capacity
 
-1. Generate offline, self-checked (debug problems are *executed* to prove the bug is real).
-2. Serve from the bank; every solve is an implicit "was this worth doing" and an explicit 👍/👎.
-3. Wilson ranking floats the good ones to the top of the bank; `shouldRetire` buries the clearly-bad ones (net-negative with enough signal) so they stop being served.
-4. Over time the bank converges on a curated core of strong problems that get **reused across all users** — so cost per problem-served trends toward zero and we generate *less*, not more.
+Model calls are the principal marginal cost. Existing controls:
 
-This is the spec's "generate once, persist in a shared bank" (§3) plus "upvoting good problems" (§16 v2), and it's what makes the economics improve with scale instead of degrade.
+- Stable problem/key prefixes use prompt-cache breakpoints.
+- Every call site has a deadline and explicit SDK retry budget.
+- Only transient connection/408/409/429/5xx failures retry.
+- Generation is rate-budgeted, queued, verified once, and reused.
+- JD matching serves existing tagged problems before generating.
+- Cancellation propagates to the provider for chat and grading.
 
-## What's implemented vs. deferred
+At higher traffic, record per-call-site tokens, cache reads, latency, status, and retry count. Add grading backpressure before organization TPM limits become user-visible.
 
-**Implemented now:** browser execution, stateless routes, answer-key stripping, atomic denormalized counters, idempotent per-session voting, auto-retirement, Wilson ranking, efficient random selection, indexed bank filter, prompt-cached grading, per-session rate limiting, offline batched generation with executed self-check.
+### 4. Bank ranking and pagination
 
-**Deferred (the honest asterisks):** Postgres swap + read replicas (one-line provider change); stored `rankScore` column (in-code ranking works up to low-thousands); Redis/KV-backed rate limiter and counts (in-memory is single-instance only); optional accounts/BYOK; a CDN in front of the app. None of these require schema or API-shape changes — they're operational swaps behind interfaces that already exist.
+The current endpoint loads the filtered set, computes Wilson scores in application code, sorts, and slices. This is reasonable for hundreds or low thousands of problems. Beyond that:
+
+- Store `rankScore` on `Problem` and update it in the vote transaction.
+- Add an index covering retirement, filters, rank, and id.
+- Use cursor pagination instead of loading the full candidate set.
+- Keep a new/problem exploration reserve so zero-vote items can earn signal.
+
+### 5. Worker throughput
+
+Generation jobs already live outside requests and support atomic claims, stale-claim recovery, retry backoff, and terminal JD deletion. PostgreSQL permits multiple workers to claim distinct jobs safely. Scale workers based on queue age and provider limits, not web traffic.
+
+## Correctness under concurrency
+
+- `timesAttempted`, `upvotes`, and `downvotes` use atomic increments.
+- Votes are unique per `(problemId, sessionId)` and update through delta math.
+- Attempt creation and `timesAttempted` increment share a transaction.
+- Generation claims are atomic and stale claims are reclaimable.
+- Retirement is a reversible flag rather than deletion.
+
+## Verification strategy
+
+- Deterministic unit and DB tests run on isolated SQLite.
+- Provider-independent browser smoke runs on every push and PR.
+- Live model E2E runs weekly/manual so provider/model drift is visible without making every commit slow or expensive.
+- Production build verification runs before browser smoke in CI.
+
+## Deployment checklist
+
+- [ ] PostgreSQL migration tested under concurrent writers
+- [ ] Pooled and direct database URLs configured
+- [ ] Redis/KV rate-limit store installed
+- [ ] `ANTHROPIC_API_KEY` configured as a secret
+- [ ] Worker deployed with `python3` and graceful shutdown
+- [ ] Weekly live E2E secret configured
+- [ ] Structured provider/worker metrics and alerts installed
+- [ ] Cursor pagination and stored rank added before large bank growth

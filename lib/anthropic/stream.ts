@@ -12,6 +12,7 @@
  */
 import { anthropic } from "./client";
 import { callParams, type CallSite } from "./models";
+import { classifyModelError, isAbortError, modelRequestOptions } from "./reliability";
 
 export interface ChatTurn {
   role: "user" | "assistant";
@@ -38,18 +39,29 @@ export function sseFromMessages(
   system: SystemPrefix,
   messages: ChatTurn[],
   onFinal?: (reply: string) => void | Promise<void>,
+  signal?: AbortSignal,
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
+  let abortUpstream: (() => void) | undefined;
+  let open = true;
   return new ReadableStream<Uint8Array>({
     async start(controller) {
-      const send = (obj: unknown) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+      const send = (obj: unknown) => {
+        if (!open) return;
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+        } catch {
+          open = false;
+        }
+      };
       try {
         let full = "";
         const stream = anthropic.messages.stream({
           ...callParams(site),
           system,
           messages,
-        });
+        }, modelRequestOptions(site, signal));
+        abortUpstream = () => stream.abort();
         stream.on("text", (delta) => {
           full += delta;
           send({ type: "delta", text: delta });
@@ -58,10 +70,19 @@ export function sseFromMessages(
         if (onFinal) await onFinal(full);
         send({ type: "done" });
       } catch (err) {
-        send({ type: "error", message: err instanceof Error ? err.message : String(err) });
+        if (!isAbortError(err) && !signal?.aborted) {
+          const info = classifyModelError(err, "interviewer");
+          send({ type: "error", code: info.code, message: info.message, retryable: info.retryable });
+        }
       } finally {
-        controller.close();
+        abortUpstream = undefined;
+        if (open) controller.close();
+        open = false;
       }
+    },
+    cancel() {
+      open = false;
+      abortUpstream?.();
     },
   });
 }

@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatMessage, Grade, PublicProblem, ReviewComment, RunRecord, RunResult, SolutionFile } from "@/lib/types";
 import { getRunner } from "@/lib/pyodide/runner";
 import { getSessionId } from "@/lib/session";
 import { streamSSE } from "@/lib/sseClient";
+import { clearSolveDraft, readSolveDraft, writeSolveDraft } from "@/lib/solveDraft";
 import { DebugPane } from "./DebugPane";
 import { ReviewPane } from "./ReviewPane";
 import { DesignPane } from "./DesignPane";
@@ -72,6 +73,10 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [grade, setGrade] = useState<Grade | null>(null);
   const attemptId = useRef<string | null>(null);
+  const gradingAbort = useRef<AbortController | null>(null);
+  const [draftReady, setDraftReady] = useState(false);
+  const [draftStatus, setDraftStatus] = useState<string | null>(null);
+  const persistDraft = useRef(true);
 
   // --- interviewer chat ---
   const [chat, setChat] = useState<ChatMessage[]>([{ role: "interviewer", content: GREETINGS[mode] }]);
@@ -86,22 +91,89 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
   const startedAt = useRef(Date.now());
   const readElapsed = () => Math.floor((Date.now() - startedAt.current) / 1000);
 
+  // Restore after hydration so server and client produce the same first render.
+  // Reset first because client navigation between two /solve/[id] pages may reuse
+  // this component position; no state from the previous problem may bleed over.
+  useEffect(() => {
+    persistDraft.current = false;
+    setDraftReady(false);
+    setFiles(problem.files ?? []);
+    setActivePath((problem.files ?? []).find((file) => !file.readOnly)?.path ?? problem.files?.[0]?.path ?? "");
+    setCode(problem.starterCode ?? "");
+    setComments([]);
+    setRunResult(null);
+    setRuns([]);
+    setChat([{ role: "interviewer", content: GREETINGS[mode] }]);
+    setGrade(null);
+    setPhase("solve");
+    attemptId.current = null;
+
+    const draft = readSolveDraft(problem.id, mode);
+    if (draft?.mode === "debug") {
+      setFiles(draft.files);
+      setActivePath(draft.files.some((file) => file.path === draft.activePath) ? draft.activePath : draft.files[0]?.path ?? "");
+      setRuns(draft.runs);
+      setRunResult(draft.runResult);
+    } else if (draft?.mode === "review") {
+      setComments(draft.comments);
+    } else if (draft?.mode === "design") {
+      setCode(draft.code);
+    }
+    if (draft?.chat.length) setChat(draft.chat);
+    setDraftStatus(draft ? "Draft restored" : null);
+    persistDraft.current = true;
+    setDraftReady(true);
+  }, [mode, problem]);
+
+  const saveDraft = useCallback(() => {
+    if (!draftReady || !persistDraft.current || phase !== "solve") return;
+    const common = { problemId: problem.id, chat };
+    const saved = isDebug
+      ? writeSolveDraft({ ...common, mode: "debug", files, activePath, runs, runResult })
+      : isReview
+        ? writeSolveDraft({ ...common, mode: "review", comments })
+        : writeSolveDraft({ ...common, mode: "design", code });
+    if (saved) setDraftStatus("Saved locally");
+  }, [activePath, chat, code, comments, draftReady, files, isDebug, isReview, phase, problem.id, runResult, runs]);
+
+  useEffect(() => {
+    if (!draftReady || !persistDraft.current || phase !== "solve") return;
+    const timer = window.setTimeout(saveDraft, 500);
+    return () => window.clearTimeout(timer);
+  }, [draftReady, phase, saveDraft]);
+
+  useEffect(() => {
+    const flush = () => saveDraft();
+    window.addEventListener("pagehide", flush);
+    return () => window.removeEventListener("pagehide", flush);
+  }, [saveDraft]);
+
   // --- run code (debug) ---
   const runCode = useCallback(async () => {
     if (!problem.testSuite || running) return;
     setRunning(true);
-    const result = await getRunner().run(files, problem.testSuite);
-    setRunResult(result);
-    setRuns((prev) => [
-      ...prev,
-      {
-        passed: result.tests.filter((t) => t.passed).length,
-        failed: result.tests.filter((t) => !t.passed).length + (result.error || result.timedOut ? 1 : 0),
-        output: result.output,
-        at: readElapsed(),
-      },
-    ]);
-    setRunning(false);
+    try {
+      const result = await getRunner().run(files, problem.testSuite);
+      setRunResult(result);
+      setRuns((prev) => [
+        ...prev,
+        {
+          passed: result.tests.filter((t) => t.passed).length,
+          failed: result.tests.filter((t) => !t.passed).length + (result.error || result.timedOut ? 1 : 0),
+          output: result.output,
+          at: readElapsed(),
+        },
+      ]);
+    } catch (error) {
+      setRunResult({
+        ok: false,
+        output: "",
+        tests: [],
+        error: error instanceof Error ? error.message : "The browser runner stopped unexpectedly.",
+      });
+    } finally {
+      setRunning(false);
+    }
   }, [files, problem.testSuite, running]);
 
   // --- streaming interviewer helper ---
@@ -109,7 +181,11 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
   // resets the transcript) invalidates older ones so late deltas can't write
   // into the wrong bubble — or into an empty transcript.
   const streamGen = useRef(0);
+  const streamAbort = useRef<AbortController | null>(null);
   const streamInterviewer = useCallback(async (url: string, body: object, userText?: string) => {
+    streamAbort.current?.abort();
+    const abort = new AbortController();
+    streamAbort.current = abort;
     const gen = ++streamGen.current;
     setAiBusy(true);
     // Drop any leftover blank interviewer bubble from a superseded stream, then
@@ -127,13 +203,24 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
         return copy;
       });
     try {
-      await streamSSE(url, body, {
-        onDelta: (t) => patchLast((last) => ({ role: "interviewer", content: last.content + t })),
-        onError: (m) => patchLast(() => ({ role: "interviewer", content: `⚠️ ${m}` })),
-      });
+      await streamSSE(
+        url,
+        body,
+        {
+          onDelta: (t) => patchLast((last) => ({ role: "interviewer", content: last.content + t })),
+          onError: (m) =>
+            patchLast((last) => ({
+              role: "interviewer",
+              content: last.content ? `${last.content}\n\n${m}` : `⚠️ ${m}`,
+            })),
+        },
+        { signal: abort.signal },
+      );
     } catch (err) {
-      // fetch threw or the reader died mid-stream — surface it rather than hang.
-      patchLast(() => ({ role: "interviewer", content: `⚠️ ${err instanceof Error ? err.message : "connection lost"}` }));
+      if (!abort.signal.aborted) {
+        // Fetch threw or the reader died mid-stream — surface it rather than hang.
+        patchLast(() => ({ role: "interviewer", content: `⚠️ ${err instanceof Error ? err.message : "Connection lost. Try again."}` }));
+      }
     } finally {
       // Only the current stream owns cleanup; a superseded one must not reset the
       // newer stream's busy-state. The finally guarantees aiBusy is always cleared.
@@ -144,7 +231,15 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
         });
         setAiBusy(false);
       }
+      if (streamAbort.current === abort) streamAbort.current = null;
     }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      streamAbort.current?.abort();
+      gradingAbort.current?.abort();
+    };
   }, []);
 
   /** Transcript as sent to the model routes — never includes blank bubbles. */
@@ -152,6 +247,9 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
 
   // --- submit for grading ---
   const submit = useCallback(async () => {
+    gradingAbort.current?.abort();
+    const abort = new AbortController();
+    gradingAbort.current = abort;
     setSubmitting(true);
     setSubmitError(null);
     const submission = isDebug
@@ -165,6 +263,7 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ problemId: problem.id, sessionId: getSessionId(), submission }),
+        signal: abort.signal,
       });
       if (!res.ok) {
         const detail = await res.json().catch(() => null);
@@ -173,16 +272,27 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
       const data: { attemptId: string; grade: Grade } = await res.json();
       attemptId.current = data.attemptId;
       setGrade(data.grade);
+      streamAbort.current?.abort();
       streamGen.current++; // invalidate any in-flight hint stream before resetting the transcript
       setAiBusy(false);
       setChat([]);
       setPhase("results");
       setMobilePane("workspace");
+      persistDraft.current = false;
+      clearSolveDraft(problem.id);
+      setDraftStatus(null);
       // Open the Socratic follow-up.
       void streamInterviewer("/api/socratic", { attemptId: data.attemptId, history: [] });
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : "Something went wrong grading your submission.");
+      setSubmitError(
+        abort.signal.aborted
+          ? "Grading cancelled. Your draft is saved locally."
+          : err instanceof Error
+            ? err.message
+            : "Something went wrong grading your submission. Your draft is saved locally.",
+      );
     } finally {
+      if (gradingAbort.current === abort) gradingAbort.current = null;
       setSubmitting(false);
     }
   }, [isDebug, isReview, files, code, comments, runs, problem.id, streamInterviewer]);
@@ -245,6 +355,7 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
       <div className={shell.subbar}>
         <span className={shell.crumb}>{crumbType}</span>
         <h1 className={shell.title}>{problem.title}</h1>
+        {phase === "solve" && draftStatus && <span className={shell.draftStatus}>{draftStatus}</span>}
         <div className={shell.grow} />
         <div className={shell.mobileNav} role="tablist" aria-label="Solve view">
           <button
@@ -330,7 +441,7 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
               <DesignPane doc={code} onDocChange={setCode} />
             </>
           )}
-          {submitting && <GradingOverlay />}
+          {submitting && <GradingOverlay onCancel={() => gradingAbort.current?.abort()} />}
         </div>
 
         <InterviewerPanel

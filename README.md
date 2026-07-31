@@ -1,6 +1,6 @@
 # Anvil ⚒️
 
-**Interview practice for the skills LeetCode ignores** — debugging, code review, and (soon) system design. Free, browser-based, AI-graded.
+**Interview practice for the skills LeetCode ignores** — debugging, code review, and system design. Browser-based and AI-graded.
 
 > LeetCode drills algorithmic puzzles because a unit-test harness says right or wrong instantly. But the skills that actually break candidates — reading unfamiliar code under pressure, catching the subtle bug in a plausible AI-written PR, reasoning through a design out loud — have no such oracle. Anvil builds one.
 
@@ -28,9 +28,10 @@ npm run dev               # → http://localhost:3000
 |---|---|
 | `npm run dev` | Dev server on :3000 |
 | `npm test` | Unit tests (grading matcher) |
-| `npm run e2e` | Full-loop check in headless Chromium (needs `dev` running) |
+| `npm run e2e:smoke` | Deterministic browser flow with mocked model boundaries (needs `dev` running) |
+| `npm run e2e` | Live-model full loop in headless Chromium (needs `dev` running) |
 | `npm run seed` | Reset the hand-authored problem bank |
-| `npm run generate:bank -- --type debug --count 3` | Generate new problems offline (Sonnet + executed self-check) |
+| `npm run generate:bank -- --type debug --count 3` | Generate verified problems through the shared pipeline |
 | `npm run build` | Production build |
 
 The browser suite targets `http://localhost:3000` by default. Point it at a
@@ -42,6 +43,6 @@ E2E_BASE_URL=http://localhost:3001 npm run e2e
 
 ## How it's put together
 
-Browser = compute layer (Pyodide in a Web Worker runs untrusted code); a thin Next.js backend serves problems (answer keys stripped), grades against the seeded key (deterministic line-anchor matcher + Haiku judgment), and streams the Socratic follow-up over SSE. Full details in [ARCHITECTURE.md](ARCHITECTURE.md); product rationale in [docs/spec.md](docs/spec.md).
+The browser is the compute layer: Pyodide in a Web Worker runs untrusted Python and localStorage recovers active drafts. A thin Next.js backend serves stripped problem payloads, grades against the seeded key, and streams the interviewer over SSE. Prisma uses SQLite locally; PostgreSQL is the production target. Full details are in [ARCHITECTURE.md](ARCHITECTURE.md), with deployment limits in [SCALING.md](SCALING.md).
 
 *"Anvil" is a working title. The logo is a placeholder. The forge metaphor — hammering raw skill into shape under heat — is the point.*

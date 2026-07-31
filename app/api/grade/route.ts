@@ -5,6 +5,7 @@ import { SubmissionModeError, gradeSubmission } from "@/lib/grading";
 import { gradeBodySchema } from "@/lib/validation";
 import { clientKey, rateLimit } from "@/lib/ratelimit";
 import type { RunRecord } from "@/lib/types";
+import { classifyModelError, isAbortError } from "@/lib/anthropic/reliability";
 
 export const runtime = "nodejs";
 
@@ -31,12 +32,19 @@ export async function POST(req: Request) {
 
   let grade;
   try {
-    grade = await gradeSubmission(problem, submission);
+    grade = await gradeSubmission(problem, submission, req.signal);
   } catch (err) {
     if (err instanceof SubmissionModeError) {
       return NextResponse.json({ error: "Submission mode does not match problem type" }, { status: 400 });
     }
-    throw err;
+    if (isAbortError(err) || req.signal.aborted) {
+      return NextResponse.json({ error: "Grading cancelled", code: "cancelled", retryable: false }, { status: 499 });
+    }
+    const info = classifyModelError(err, "grading");
+    return NextResponse.json(
+      { error: info.message, code: info.code, retryable: info.retryable },
+      { status: info.status },
+    );
   }
 
   // Persist the submission in the shape the re-grade path reads back, so a
@@ -49,19 +57,31 @@ export async function POST(req: Request) {
         : { doc: submission.doc };
   const runHistory: RunRecord[] | undefined = submission.mode === "debug" ? submission.runHistory : undefined;
 
-  const [attempt] = await prisma.$transaction([
-    prisma.attempt.create({
-      data: {
-        problemId,
-        sessionId,
-        submission: storedSubmission as object,
-        runHistory: (runHistory ?? undefined) as object | undefined,
-        grade: grade as unknown as object,
+  let attempt;
+  try {
+    [attempt] = await prisma.$transaction([
+      prisma.attempt.create({
+        data: {
+          problemId,
+          sessionId,
+          submission: storedSubmission as object,
+          runHistory: (runHistory ?? undefined) as object | undefined,
+          grade: grade as unknown as object,
+        },
+      }),
+      // Popularity signal for the bank — atomic so concurrent solvers don't clobber.
+      prisma.problem.update({ where: { id: problemId }, data: { timesAttempted: { increment: 1 } } }),
+    ]);
+  } catch {
+    return NextResponse.json(
+      {
+        error: "Your grade was computed but could not be saved. Your draft is safe; try again.",
+        code: "persistence",
+        retryable: true,
       },
-    }),
-    // Popularity signal for the bank — atomic so concurrent solvers don't clobber.
-    prisma.problem.update({ where: { id: problemId }, data: { timesAttempted: { increment: 1 } } }),
-  ]);
+      { status: 503 },
+    );
+  }
 
   return NextResponse.json({ attemptId: attempt.id, grade });
 }

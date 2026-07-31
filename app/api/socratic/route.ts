@@ -45,7 +45,7 @@ export async function POST(req: Request) {
       where: { id: attemptId },
       data: { transcript: transcript as unknown as object },
     });
-  });
+  }, req.signal);
 
   return new Response(stream, {
     headers: {

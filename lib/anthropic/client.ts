@@ -20,6 +20,9 @@ const globalForAnthropic = globalThis as unknown as { anthropic?: Anthropic };
  */
 const REQUEST_TIMEOUT_MS = 8 * 60_000;
 
-export const anthropic = globalForAnthropic.anthropic ?? new Anthropic({ timeout: REQUEST_TIMEOUT_MS });
+// Call sites opt into their own retry/deadline policy through reliability.ts.
+// Keeping the singleton at zero retries prevents a new call from silently using
+// the SDK default and turning one user action into three unbounded requests.
+export const anthropic = globalForAnthropic.anthropic ?? new Anthropic({ timeout: REQUEST_TIMEOUT_MS, maxRetries: 0 });
 
 if (process.env.NODE_ENV !== "production") globalForAnthropic.anthropic = anthropic;

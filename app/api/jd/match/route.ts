@@ -43,7 +43,7 @@ export async function POST(req: Request) {
   // perfectly good fallback.
   let tags, seniority;
   try {
-    ({ tags, seniority } = await analyzeJd(jd));
+    ({ tags, seniority } = await analyzeJd(jd, req.signal));
   } catch {
     return NextResponse.json({ tags: [], seniority: "mid", confidence: 0, matches: [] });
   }
