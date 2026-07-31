@@ -221,8 +221,30 @@ async function main() {
   await page.waitForFunction(() => window.monaco.editor.getModels().some((model) => model.getValue().includes("SMOKE_DESIGN_MARKER")));
   log("✓ design document recovers after reload");
 
+  // The bank is searchable, filterable, shareable, and remains usable on mobile.
+  await page.goto(`${BASE}/bank?sort=new`, { waitUntil: "networkidle" });
+  await page.getByPlaceholder("Search titles or topics").fill("teleoperation");
+  await page.waitForFunction(() => new URL(location.href).searchParams.get("q") === "teleoperation");
+  const tailoredRows = await page.locator("main li").count();
+  if (tailoredRows < 1) throw new Error("Bank search did not find the seeded teleoperation problem.");
+  await page.getByRole("button", { name: /more$/ }).click();
+  await page.getByRole("button", { name: "Show fewer" }).waitFor();
+  await page.getByRole("button", { name: "Reset filters" }).click();
+  if (new URL(page.url()).searchParams.has("q")) throw new Error("Reset filters left the bank query in the URL.");
+  const trackFilters = page.getByRole("group", { name: "Filter by track" });
+  await Promise.all([
+    page.waitForResponse((response) => response.url().includes("/api/problems?") && response.ok()),
+    trackFilters.getByRole("button", { name: "Code review" }).click(),
+  ]);
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll("main li .pill")].every((pill) => pill.textContent?.trim() === "Review"),
+  );
+  log("✓ problem bank search, topics, filters, and shareable URL work");
+
   // Keep the responsive regression in the cheap suite that runs on every push.
   await page.setViewportSize({ width: 390, height: 844 });
+  const bankOverflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+  if (bankOverflow > 1) throw new Error(`Mobile bank overflows by ${bankOverflow}px.`);
   await page.goto(`${BASE}/solve/${debug.id}`, { waitUntil: "networkidle" });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   if (overflow > 1) throw new Error(`Mobile solve overflows by ${overflow}px.`);

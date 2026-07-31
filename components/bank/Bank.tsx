@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import type { ProblemSummary, ProblemType, Difficulty } from "@/lib/types";
 import { DIFFICULTIES, PROBLEM_TYPES } from "@/lib/types";
 import { asTag, type Tag } from "@/lib/tags";
+import { IconArrowRight, IconChevronDown, IconSearch, IconX } from "@/lib/icons";
 import styles from "./Bank.module.css";
 
 const TYPE_PILL: Record<ProblemType, string> = {
@@ -16,40 +17,34 @@ const TYPE_PILL: Record<ProblemType, string> = {
 
 const TYPE_LABEL: Record<ProblemType, string> = {
   debug: "Debug",
+  review: "Code review",
+  design: "System design",
+};
+const TYPE_BADGE_LABEL: Record<ProblemType, string> = {
+  debug: "Debug",
   review: "Review",
   design: "Design",
 };
 
 type Sort = "top" | "new";
+const COLLAPSED_TOPIC_COUNT = 10;
 
-/**
- * How big the job is, phrased in the unit that matters for the mode: a reviewer
- * reads added lines across files, a debugger has the whole package open.
- */
 function scaleLabel(type: ProblemType, scale: NonNullable<ProblemSummary["scale"]>): string {
   const files = `${scale.files} file${scale.files === 1 ? "" : "s"}`;
-  return type === "review" ? `${files} · +${scale.lines}` : `${files} · ${scale.lines} lines`;
+  return type === "review" ? `${files} · +${scale.lines} lines` : `${files} · ${scale.lines} lines`;
 }
 
-/**
- * The full problem bank (the destination the "Problem bank" nav entry always
- * advertised). The home page shows six rows as a teaser; this is the browsable
- * list, filterable by the same axes the bank is generated along plus the topic
- * tags that make it searchable by concern rather than only by mode.
- *
- * Type/difficulty/sort go to the server because the API already implements them
- * (and ranking needs the vote counts); tag filtering is done here, over the rows
- * already fetched, because it is set intersection over a closed vocabulary and a
- * round trip per chip click would feel worse than instant.
- */
+function matchesQuery(problem: ProblemSummary, rawQuery: string): boolean {
+  const query = rawQuery.trim().toLowerCase();
+  if (!query) return true;
+  if (problem.title.toLowerCase().includes(query)) return true;
+  return problem.tags.some((tag) => tag.includes(query) || tag.replaceAll("-", " ").includes(query));
+}
+
+/** Browsable, shareable view of every verified problem in the bank. */
 export function Bank({ initial }: { initial: ProblemSummary[] }) {
-  // Seeded from the URL so `/bank?type=debug&tag=idempotency` lands pre-filtered:
-  // that is what makes the home page's track cards and a shared link work. Read
-  // once as initial state rather than kept in sync, since the controls below are
-  // the source of truth from then on.
   const params = useSearchParams();
   const pathname = usePathname();
-  const router = useRouter();
   const urlType = params.get("type");
   const urlDifficulty = params.get("difficulty");
   const urlTags = params.getAll("tag").map(asTag).filter((tag): tag is Tag => tag !== null);
@@ -62,31 +57,36 @@ export function Bank({ initial }: { initial: ProblemSummary[] }) {
     (DIFFICULTIES as readonly string[]).includes(urlDifficulty ?? "") ? (urlDifficulty as Difficulty) : "all",
   );
   const [sort, setSort] = useState<Sort>(params.get("sort") === "new" ? "new" : "top");
+  const [query, setQuery] = useState(() => (params.get("q") ?? "").slice(0, 100));
   const [activeTags, setActiveTags] = useState<Tag[]>(() => [...new Set(urlTags)]);
+  const [topicsExpanded, setTopicsExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
   const firstRender = useRef(true);
 
-  // Refetch whenever a server-side filter changes — but not on mount: the server
-  // component already queried with these exact filters, so a first-render fetch
-  // would re-request the identical rows on every page load.
   useEffect(() => {
     if (firstRender.current) {
       firstRender.current = false;
       return;
     }
     let cancelled = false;
-    const params = new URLSearchParams({ sort, limit: "100" });
-    if (type !== "all") params.set("type", type);
-    if (difficulty !== "all") params.set("difficulty", difficulty);
+    const next = new URLSearchParams({ sort, limit: "100" });
+    if (type !== "all") next.set("type", type);
+    if (difficulty !== "all") next.set("difficulty", difficulty);
 
     setLoading(true);
-    fetch(`/api/problems?${params}`)
-      .then((r) => r.json())
+    setLoadError(false);
+    fetch(`/api/problems?${next}`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`Problem bank request failed (${response.status})`);
+        return response.json();
+      })
       .then((data) => {
         if (!cancelled) setProblems(data.problems ?? []);
       })
       .catch(() => {
-        // Leave the current list up rather than blanking the page on a blip.
+        if (!cancelled) setLoadError(true);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -95,165 +95,220 @@ export function Bank({ initial }: { initial: ProblemSummary[] }) {
     return () => {
       cancelled = true;
     };
-  }, [type, difficulty, sort]);
+  }, [type, difficulty, sort, refreshKey]);
 
-  // Keep the controls shareable and browser-navigation friendly. The server page
-  // reads the same query on a fresh request; tags stay client-side because they
-  // filter the already fetched, closed-vocabulary result set instantly.
   useEffect(() => {
     const next = new URLSearchParams();
     if (type !== "all") next.set("type", type);
     if (difficulty !== "all") next.set("difficulty", difficulty);
     if (sort !== "top") next.set("sort", sort);
+    if (query.trim()) next.set("q", query.trim());
     for (const tag of activeTags) next.append("tag", tag);
 
-    const href = next.size > 0 ? `${pathname}?${next}` : pathname;
-    router.replace(href, { scroll: false });
-  }, [activeTags, difficulty, pathname, router, sort, type]);
+    // These controls already own their data fetching and local filtering. A
+    // native history update keeps the URL shareable without starting an RSC
+    // navigation for every character typed into search.
+    window.history.replaceState(null, "", next.size > 0 ? `${pathname}?${next}` : pathname);
+  }, [activeTags, difficulty, pathname, query, sort, type]);
 
-  // Tags actually present in the current result set, commonest first — showing
-  // the whole 40-tag vocabulary would mostly offer dead ends.
   const availableTags = useMemo(() => {
     const counts = new Map<Tag, number>();
-    for (const p of problems) {
-      for (const tag of p.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    for (const problem of problems) {
+      for (const tag of problem.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
     }
-    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  }, [problems]);
+    for (const tag of activeTags) if (!counts.has(tag)) counts.set(tag, 0);
+    return [...counts.entries()].sort(
+      (a, b) => Number(activeTags.includes(b[0])) - Number(activeTags.includes(a[0])) || b[1] - a[1] || a[0].localeCompare(b[0]),
+    );
+  }, [activeTags, problems]);
 
-  // Every selected tag must be present (AND), which is what makes stacking two
-  // chips narrow the list instead of widening it.
+  const displayedTags = useMemo(() => {
+    if (topicsExpanded) return availableTags;
+    const selected = availableTags.filter(([tag]) => activeTags.includes(tag));
+    const common = availableTags.filter(([tag]) => !activeTags.includes(tag)).slice(0, COLLAPSED_TOPIC_COUNT);
+    return [...selected, ...common];
+  }, [activeTags, availableTags, topicsExpanded]);
+
   const visible = useMemo(
-    () => problems.filter((p) => activeTags.every((t) => p.tags.includes(t))),
-    [problems, activeTags],
+    () =>
+      problems.filter(
+        (problem) => activeTags.every((tag) => problem.tags.includes(tag)) && matchesQuery(problem, query),
+      ),
+    [problems, activeTags, query],
   );
 
   function toggleTag(tag: Tag) {
-    setActiveTags((current) => (current.includes(tag) ? current.filter((t) => t !== tag) : [...current, tag]));
+    setActiveTags((current) => (current.includes(tag) ? current.filter((item) => item !== tag) : [...current, tag]));
   }
 
-  const filtered = type !== "all" || difficulty !== "all" || activeTags.length > 0;
+  function clearFilters() {
+    setType("all");
+    setDifficulty("all");
+    setQuery("");
+    setActiveTags([]);
+  }
+
+  const filtered = type !== "all" || difficulty !== "all" || activeTags.length > 0 || query.trim().length > 0;
+  const hiddenTopicCount = Math.max(0, availableTags.length - displayedTags.length);
 
   return (
     <main className={styles.wrap}>
       <header className={styles.head}>
-        <div>
-          <span className="eyebrow">Shared bank</span>
-          <h1 className={styles.h1}>Every problem, verified before it landed</h1>
-          <p className={styles.sub}>
-            Each one was generated, then executed to prove the flaw is real — the ones that failed that check
-            never made it here. New problems are added through the verified operator pipeline.
-          </p>
-        </div>
+        <span className="eyebrow">Shared library</span>
+        <h1 className={styles.h1}>Problem bank</h1>
+        <p className={styles.intro}>
+          Verified debugging, code-review, and system-design exercises. Generated problems enter the bank only after
+          their execution or rubric checks pass.
+        </p>
       </header>
 
-      <div className={styles.controls}>
-        <div className={styles.seg}>
-          <button className={type === "all" ? styles.on : ""} onClick={() => setType("all")}>
-            Any type
-          </button>
-          {PROBLEM_TYPES.map((t) => (
-            <button key={t} className={type === t ? styles.on : ""} onClick={() => setType(t)}>
-              {TYPE_LABEL[t]}
-            </button>
-          ))}
+      <section className={styles.filterPanel} aria-label="Problem bank filters">
+        <div className={styles.searchRow}>
+          <label className={styles.search}>
+            <IconSearch />
+            <span className={styles.srOnly}>Search problems</span>
+            <input
+              type="search"
+              value={query}
+              maxLength={100}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search titles or topics"
+            />
+            {query && (
+              <button type="button" onClick={() => setQuery("")} aria-label="Clear search" title="Clear search">
+                <IconX />
+              </button>
+            )}
+          </label>
+
+          <div className={styles.sortGroup} role="group" aria-label="Sort problems">
+            <span className={styles.controlLabel}>Sort</span>
+            <div className={styles.seg}>
+              <button aria-pressed={sort === "top"} className={sort === "top" ? styles.on : ""} onClick={() => setSort("top")}>
+                Top rated
+              </button>
+              <button aria-pressed={sort === "new"} className={sort === "new" ? styles.on : ""} onClick={() => setSort("new")}>
+                Newest
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div className={styles.seg}>
-          <button className={difficulty === "all" ? styles.on : ""} onClick={() => setDifficulty("all")}>
-            Any level
-          </button>
-          {DIFFICULTIES.map((d) => (
-            <button key={d} className={difficulty === d ? styles.on : ""} onClick={() => setDifficulty(d)}>
-              {d[0].toUpperCase() + d.slice(1)}
-            </button>
-          ))}
+        <div className={styles.filterRow}>
+          <div className={styles.filterGroup} role="group" aria-label="Filter by track">
+            <span className={styles.controlLabel}>Track</span>
+            <div className={styles.seg}>
+              <button aria-pressed={type === "all"} className={type === "all" ? styles.on : ""} onClick={() => setType("all")}>
+                All
+              </button>
+              {PROBLEM_TYPES.map((item) => (
+                <button key={item} aria-pressed={type === item} className={type === item ? styles.on : ""} onClick={() => setType(item)}>
+                  {TYPE_LABEL[item]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className={styles.filterGroup} role="group" aria-label="Filter by difficulty">
+            <span className={styles.controlLabel}>Level</span>
+            <div className={styles.seg}>
+              <button aria-pressed={difficulty === "all"} className={difficulty === "all" ? styles.on : ""} onClick={() => setDifficulty("all")}>
+                All
+              </button>
+              {DIFFICULTIES.map((item) => (
+                <button
+                  key={item}
+                  aria-pressed={difficulty === item}
+                  className={difficulty === item ? styles.on : ""}
+                  onClick={() => setDifficulty(item)}
+                >
+                  {item[0].toUpperCase() + item.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className={styles.resultSummary} aria-live="polite">
+            <span>{loading ? "Updating…" : `${visible.length} result${visible.length === 1 ? "" : "s"}`}</span>
+            {filtered && (
+              <button type="button" onClick={clearFilters}>
+                Reset filters
+              </button>
+            )}
+          </div>
         </div>
 
-        <div className={styles.seg}>
-          <button className={sort === "top" ? styles.on : ""} onClick={() => setSort("top")}>
-            Top rated
-          </button>
-          <button className={sort === "new" ? styles.on : ""} onClick={() => setSort("new")}>
-            Newest
-          </button>
-        </div>
+        {availableTags.length > 0 && (
+          <div className={styles.topics}>
+            <span className={styles.controlLabel}>Topics</span>
+            <div className={styles.topicList}>
+              {displayedTags.map(([tag, count]) => (
+                <button
+                  key={tag}
+                  className={`${styles.tag} ${activeTags.includes(tag) ? styles.tagOn : ""}`}
+                  onClick={() => toggleTag(tag)}
+                  aria-pressed={activeTags.includes(tag)}
+                >
+                  {tag.replaceAll("-", " ")}
+                  <span>{count}</span>
+                </button>
+              ))}
+              {(hiddenTopicCount > 0 || topicsExpanded) && (
+                <button className={styles.topicToggle} onClick={() => setTopicsExpanded((current) => !current)}>
+                  {topicsExpanded ? "Show fewer" : `${hiddenTopicCount} more`}
+                  <IconChevronDown className={topicsExpanded ? styles.chevronUp : ""} />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </section>
 
-        <span className={styles.count}>
-          {loading ? "loading…" : `${visible.length} problem${visible.length === 1 ? "" : "s"}`}
-        </span>
-      </div>
-
-      {availableTags.length > 0 && (
-        <div className={styles.tagrow}>
-          <span className={styles.tagLabel}>Topic</span>
-          {availableTags.map(([tag, n]) => (
-            <button
-              key={tag}
-              className={`${styles.tag} ${activeTags.includes(tag) ? styles.tagOn : ""}`}
-              onClick={() => toggleTag(tag)}
-              aria-pressed={activeTags.includes(tag)}
-            >
-              {tag}
-              <span className={styles.tagCount}>{n}</span>
-            </button>
-          ))}
-          {activeTags.length > 0 && (
-            <button className={styles.clear} onClick={() => setActiveTags([])}>
-              clear
-            </button>
-          )}
+      {loadError && (
+        <div className={styles.loadError} role="alert">
+          <span>Couldn&apos;t refresh the bank. The previous results are still shown.</span>
+          <button onClick={() => setRefreshKey((key) => key + 1)}>Retry</button>
         </div>
       )}
 
       {visible.length === 0 ? (
         <div className={styles.empty}>
-          {filtered ? (
-            <>
-              Nothing matches that combination yet.{" "}
-              <button
-                className={styles.link}
-                onClick={() => {
-                  setType("all");
-                  setDifficulty("all");
-                  setActiveTags([]);
-                }}
-              >
-                Clear the filters
-              </button>{" "}
-              — or adjust the job and level filters.
-            </>
-          ) : (
-            <>The bank is empty. Run the operator generator to seed it.</>
-          )}
+          <strong>{filtered ? "No matching problems" : "The bank is empty"}</strong>
+          <span>{filtered ? "Try a broader search or remove one of the active filters." : "Generate a tailored problem from the practice page."}</span>
+          {filtered && <button onClick={clearFilters}>Reset filters</button>}
         </div>
       ) : (
-        <ul className={styles.list}>
-          {visible.map((p) => (
-            <li key={p.id}>
-              <Link href={`/solve/${p.id}`} className={styles.row}>
-                <span className={`pill ${TYPE_PILL[p.type]}`}>{p.type}</span>
-                <span className={styles.main}>
-                  <span className={styles.title}>{p.title}</span>
-                  <span className={styles.sub}>
-                    {p.scale && <span className={styles.scale}>{scaleLabel(p.type, p.scale)}</span>}
-                    {p.tags.slice(0, 3).map((t) => (
-                      <span key={t} className={styles.rowtag}>
-                        {t}
-                      </span>
-                    ))}
-                    {p.quality === "good" && <span className={styles.good}>well rated</span>}
+        <ul className={`${styles.list} ${loading ? styles.listLoading : ""}`} aria-busy={loading}>
+          {visible.map((problem) => {
+            const ratings = problem.upvotes + problem.downvotes;
+            return (
+              <li key={problem.id}>
+                <Link href={`/solve/${problem.id}`} className={styles.problemRow}>
+                  <span className={`${styles.type} pill ${TYPE_PILL[problem.type]}`}>{TYPE_BADGE_LABEL[problem.type]}</span>
+                  <span className={styles.problemMain}>
+                    <span className={styles.title}>{problem.title}</span>
+                    <span className={styles.metadata}>
+                      {problem.scale && <span>{scaleLabel(problem.type, problem.scale)}</span>}
+                      {problem.timesAttempted > 0 && (
+                        <span>{problem.timesAttempted} attempt{problem.timesAttempted === 1 ? "" : "s"}</span>
+                      )}
+                      {ratings > 0 && <span>{ratings} rating{ratings === 1 ? "" : "s"}</span>}
+                      {problem.quality === "good" && <span className={styles.good}>Community pick</span>}
+                    </span>
+                    <span className={styles.rowTopics}>
+                      {problem.tags.slice(0, 4).map((tag) => (
+                        <span key={tag}>{tag.replaceAll("-", " ")}</span>
+                      ))}
+                    </span>
                   </span>
-                </span>
-                {/* Fixed-width trailing columns so the eye can run down them
-                    instead of tracking a ragged edge row to row. */}
-                <span className={styles.attempts}>
-                  {p.timesAttempted > 0 ? `${p.timesAttempted} attempt${p.timesAttempted === 1 ? "" : "s"}` : ""}
-                </span>
-                <span className={`${styles.diff} ${styles[p.difficulty]}`}>{p.difficulty}</span>
-              </Link>
-            </li>
-          ))}
+                  <span className={`${styles.difficulty} ${styles[problem.difficulty]}`}>{problem.difficulty}</span>
+                  <span className={styles.open} aria-hidden="true">
+                    <IconArrowRight />
+                  </span>
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       )}
     </main>
