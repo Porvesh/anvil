@@ -10,14 +10,16 @@
 .hero {
   padding: 60px 0 30px;
 }
+/* Wider measure than the previous headline needed: this one is three short
+   sentences rather than four words, so a 16ch column broke it into five lines. */
 .hero h1 {
   font-family: var(--disp);
   font-weight: 700;
-  font-size: 52px;
-  line-height: 1.04;
+  font-size: 50px;
+  line-height: 1.06;
   letter-spacing: -0.025em;
   margin: 14px 0 0;
-  max-width: 16ch;
+  max-width: 26ch;
 }
 .hero h1 em {
   font-style: normal;

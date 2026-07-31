@@ -134,7 +134,7 @@ async function main() {
 
   // ---------- HOME ----------
   await page.goto(BASE, { waitUntil: "networkidle" });
-  const heroOk = await page.getByText("Drill the hard part").isVisible();
+  const heroOk = await page.getByText("Catch the bad PR").isVisible();
   log(heroOk ? "✓ home renders" : "✗ home hero missing");
   if (!heroOk) return fail("home did not render");
   await assertNoGroundTruthLeak(debug.id);
