@@ -191,14 +191,25 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
   return (
     <div className={styles.wrap}>
       <section className={styles.hero}>
-        <div className="eyebrow">Interview practice for the skills that actually break people</div>
+        <div className="eyebrow">Interview practice for the parts that actually go wrong</div>
         <h1>
           Drill the hard part. <em>Not</em> inverted binary trees.
         </h1>
         <p>
-          Debug real code. Review a plausible AI-written PR. Reason through a system design out loud.{" "}
-          <b>The AI plants the flaws, so the grader holds the answer key</b> — grading is a match, not a vibe.
+          Fix a bug in a service that&apos;s already running. Review a few hundred lines of AI-written PR that reads
+          perfectly and isn&apos;t. Argue a design out loud with an interviewer that pushes back.
         </p>
+        <ul className={styles.heroProof}>
+          <li>
+            <b>{problems.length} problems</b>, every one verified before it landed
+          </li>
+          <li>
+            Anvil plants the flaws, so grading is <b>a match, not a vibe</b>
+          </li>
+          <li>
+            Then it asks what you missed — <b>the follow-up is the lesson</b>
+          </li>
+        </ul>
       </section>
 
       <div className={styles.starter}>

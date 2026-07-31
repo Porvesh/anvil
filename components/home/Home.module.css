@@ -28,6 +28,41 @@
   font-size: 18px;
   max-width: 56ch;
   margin: 20px 0 0;
+  line-height: 1.5;
+}
+
+/* Three claims the page can actually back up, each with a tick. The count is
+   live from the bank rather than a written-in number, so it can't go stale. */
+.heroProof {
+  list-style: none;
+  margin: 24px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 9px;
+  max-width: 58ch;
+}
+/* Block, not flex: a flex row makes each text node its own item, so the `gap`
+   lands *inside* the sentence — "20 problems , every one…". The tick is
+   positioned instead, leaving the text to flow as one line. */
+.heroProof li {
+  position: relative;
+  padding-left: 21px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--steel);
+}
+.heroProof li::before {
+  content: "✓";
+  position: absolute;
+  left: 0;
+  top: 0;
+  line-height: 1.65;
+  color: var(--green);
+  font-size: 12px;
+}
+.heroProof b {
+  color: var(--parchment-dim);
+  font-weight: 600;
 }
 
 .starter {
