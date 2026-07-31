@@ -34,7 +34,7 @@
 .searchRow,
 .filterRow {
   display: flex;
-  align-items: end;
+  align-items: center;
   gap: 18px;
   padding: 14px 16px;
 }
@@ -87,8 +87,7 @@
   color: var(--parchment);
 }
 
-.sortGroup,
-.filterGroup {
+.sortGroup {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -129,6 +128,64 @@
   box-shadow: inset 0 0 0 1px var(--edge);
 }
 
+.selectControl {
+  position: relative;
+  min-width: 150px;
+  color: var(--steel);
+}
+.selectControl select {
+  width: 100%;
+  height: 34px;
+  appearance: none;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  outline: none;
+  padding: 0 32px 0 10px;
+  background: var(--iron);
+  color: var(--parchment-dim);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.selectControl select:focus-visible {
+  border-color: var(--blue-deep);
+}
+.selectControl > svg {
+  position: absolute;
+  right: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--steel-dim);
+}
+.topicDisclosure {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  background: var(--iron);
+  color: var(--parchment-dim);
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+.topicDisclosure:hover {
+  border-color: var(--steel-dim);
+  color: var(--parchment);
+}
+.topicDisclosureActive {
+  border-color: var(--blue-deep);
+  color: var(--blue);
+}
+.topicDisclosure svg {
+  transition: transform 0.12s;
+}
+.topicDisclosure .chevronUp {
+  transform: rotate(180deg);
+}
+
 .resultSummary {
   margin-left: auto;
   min-height: 34px;
@@ -150,23 +207,17 @@
   color: #8bc6f5;
 }
 
-.topics {
-  display: grid;
-  grid-template-columns: 58px minmax(0, 1fr);
-  gap: 10px;
-  align-items: start;
-  padding: 0 16px 14px;
-}
-.topics > .controlLabel {
-  padding-top: 7px;
+.topicDrawer,
+.activeTopics {
+  padding: 12px 16px;
+  border-top: 1px solid var(--edge-soft);
 }
 .topicList {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
-.tag,
-.topicToggle {
+.tag {
   min-height: 28px;
   display: inline-flex;
   align-items: center;
@@ -178,8 +229,7 @@
   font-size: 11px;
   transition: border-color 0.12s, background 0.12s, color 0.12s;
 }
-.tag:hover,
-.topicToggle:hover {
+.tag:hover {
   border-color: var(--steel-dim);
   color: var(--parchment);
 }
@@ -196,15 +246,22 @@
 .tagOn > span {
   color: var(--blue);
 }
-.topicToggle {
-  border-color: transparent;
-  color: var(--parchment-dim);
+.activeTopics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-block: 9px;
 }
-.topicToggle svg {
-  transition: transform 0.12s;
-}
-.topicToggle .chevronUp {
-  transform: rotate(180deg);
+.activeTopics button {
+  min-height: 25px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: rgba(90, 166, 230, 0.1);
+  color: var(--blue);
+  font-size: 10.5px;
 }
 
 .loadError {
@@ -241,8 +298,8 @@
   grid-template-columns: 92px minmax(0, 1fr) 64px 30px;
   align-items: center;
   gap: 14px;
-  min-height: 82px;
-  padding: 12px 14px;
+  min-height: 68px;
+  padding: 10px 14px;
   color: inherit;
   transition: background 0.12s;
 }
@@ -267,15 +324,14 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
 }
 .title {
   color: var(--parchment);
   font-size: 14.5px;
   line-height: 1.35;
 }
-.metadata,
-.rowTopics {
+.metadata {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -300,15 +356,6 @@
 }
 .metadata .good {
   color: var(--green);
-}
-.rowTopics {
-  gap: 5px;
-}
-.rowTopics > span {
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--iron);
-  color: var(--steel);
 }
 .difficulty {
   justify-self: end;
@@ -389,7 +436,7 @@
     width: 100%;
   }
   .sortGroup,
-  .filterGroup {
+  .selectControl {
     width: 100%;
   }
   .seg {
@@ -404,13 +451,19 @@
     justify-content: space-between;
     margin-left: 0;
   }
-  .topics {
-    grid-template-columns: 1fr;
-    gap: 6px;
-    padding: 0 12px 12px;
+  .filterRow {
+    flex-flow: row wrap;
   }
-  .topics > .controlLabel {
-    padding-top: 0;
+  .filterRow .selectControl {
+    flex: 1 1 135px;
+    width: auto;
+  }
+  .topicDisclosure {
+    flex: 0 0 auto;
+  }
+  .topicDrawer,
+  .activeTopics {
+    padding-inline: 12px;
   }
   .problemRow {
     grid-template-columns: auto minmax(0, 1fr) auto;
@@ -438,8 +491,5 @@
   }
   .title {
     font-size: 14px;
-  }
-  .rowTopics > span:nth-child(n + 4) {
-    display: none;
   }
 }
