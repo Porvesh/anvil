@@ -1,50 +1,70 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { generateAndPersist } from "@/lib/generation";
-import { clientKey, rateLimit } from "@/lib/ratelimit";
+import { analyzeJd, difficultyFor } from "@/lib/anthropic/jd";
+import { generateBodySchema } from "@/lib/validation";
+import { clientKey, dailyLimit, rateLimit } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
-// Generation runs Sonnet + a self-check; give it room.
-export const maxDuration = 120;
-
-const bodySchema = z.object({
-  type: z.enum(["debug", "review", "any"]).default("any"),
-  difficulty: z.enum(["easy", "medium", "hard"]).default("medium"),
-  jd: z.string().max(4000).optional(),
-});
 
 /**
- * POST /api/generate — generate a NEW problem tailored to the pasted JD (spec
- * §4 "JD tailoring", §11 generation). This is the on-miss path: rather than
- * only serving the seeded bank, a JD produces a fresh, verified, multi-file
- * problem that then persists into the shared bank for everyone.
+ * POST /api/generate — enqueue a tailored problem. Returns a jobId immediately.
  *
- * Design is not live-generated (no executable oracle); the client falls back to
- * bank selection for design.
+ * This used to generate inline, which meant a request handler holding a
+ * connection open for ~100s while a model wrote a project twice and python3
+ * executed it. That can't run on serverless (no python3, no such timeout) and
+ * the only way to make it fit would be to drop the execution oracle — putting
+ * unverified problems in front of a live user, which is the worst possible
+ * place to drop a gate (INV-10).
+ *
+ * So this only enqueues. A worker with python3 drains the queue, and the client
+ * watches progress over /api/generate/[id]/stream while already solving
+ * something the bank matched. Nothing blocks on generation, ever.
  */
 export async function POST(req: Request) {
-  // Generation is the expensive path — rate-limit it harder via the shared limiter.
-  const limit = rateLimit(`gen:${clientKey(req)}`);
-  if (!limit.ok) return NextResponse.json({ error: "Generation is rate-limited — try again shortly." }, { status: 429 });
-
-  const parsed = bodySchema.safeParse(await req.json().catch(() => null));
-  if (!parsed.success) return NextResponse.json({ error: "Invalid request" }, { status: 400 });
-  const { type, difficulty, jd } = parsed.data;
-
-  // "any" → pick a type; if a JD mentions reviewing PRs, bias to review.
-  const resolvedType =
-    type === "any" ? (jd && /review|pull request|\bpr\b/i.test(jd) ? "review" : "debug") : type;
-
-  try {
-    // Bound wall-clock in the request path: each attempt is a full streaming
-    // generation + self-check, so cap at 2 (the offline CLI uses more).
-    const result = await generateAndPersist(prisma, { type: resolvedType, difficulty, jd, maxAttempts: 2 });
-    if (!result) {
-      return NextResponse.json({ error: "Couldn't verify a fresh problem this time — try again." }, { status: 502 });
-    }
-    return NextResponse.json({ id: result.id, title: result.title, type: resolvedType });
-  } catch (err) {
-    return NextResponse.json({ error: err instanceof Error ? err.message : "Generation failed" }, { status: 500 });
+  if (!rateLimit(clientKey(req)).ok) {
+    return NextResponse.json({ error: "Rate limit exceeded — try again shortly." }, { status: 429 });
   }
+
+  const parsed = generateBodySchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Invalid request", details: parsed.error.flatten() }, { status: 400 });
+  }
+  const { type, difficulty, jd, sessionId } = parsed.data;
+
+  // Generation is the only endpoint that can run up a real bill, so it's the
+  // only one with a real budget rather than a burst limit.
+  const budget = dailyLimit(`gen:${sessionId}`);
+  if (!budget.ok) {
+    return NextResponse.json(
+      { error: `You've generated ${budget.limit} problems today — the bank has plenty more.` },
+      { status: 429 },
+    );
+  }
+
+  // Tagging here rather than in the worker means a job carries its tags even if
+  // generation later fails, and it's ~1s on the cheapest model.
+  let tags: string[] = [];
+  let resolvedDifficulty = difficulty;
+  if (jd) {
+    try {
+      const analysis = await analyzeJd(jd);
+      tags = analysis.tags;
+      resolvedDifficulty = difficulty ?? difficultyFor(analysis.seniority);
+    } catch {
+      // Tagging is an optimization; a failure must not cost the user their job.
+    }
+  }
+
+  const job = await prisma.generationJob.create({
+    data: {
+      sessionId,
+      jd: jd ?? null,
+      tags,
+      type: type ?? (jd && /review|pull request|\bpr\b/i.test(jd) ? "review" : "debug"),
+      difficulty: resolvedDifficulty ?? "medium",
+    },
+    select: { id: true, type: true, difficulty: true },
+  });
+
+  return NextResponse.json({ jobId: job.id, type: job.type, difficulty: job.difficulty });
 }

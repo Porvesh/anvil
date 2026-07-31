@@ -12,7 +12,8 @@
     "test": "vitest run",
     "e2e": "node scripts/e2e.mjs",
     "regrade": "node --env-file=.env --import tsx scripts/regrade.ts",
-    "backfill:tags": "node --env-file=.env --import tsx scripts/backfill-tags.ts"
+    "backfill:tags": "node --env-file=.env --import tsx scripts/backfill-tags.ts",
+    "worker": "node --env-file=.env --import tsx worker/index.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

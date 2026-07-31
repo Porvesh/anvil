@@ -66,3 +66,12 @@ export const jdMatchBodySchema = z.object({
   sessionId: z.string().min(1),
 });
 export type JdMatchBody = z.infer<typeof jdMatchBodySchema>;
+
+/** POST /api/generate — enqueue a tailored problem (the worker does the work). */
+export const generateBodySchema = z.object({
+  sessionId: z.string().min(1),
+  jd: z.string().max(12_000).optional(),
+  type: z.enum(["debug", "review", "design"]).optional(),
+  difficulty: z.enum(["easy", "medium", "hard"]).optional(),
+});
+export type GenerateBody = z.infer<typeof generateBodySchema>;
