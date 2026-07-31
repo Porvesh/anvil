@@ -54,14 +54,18 @@ export function isAbortError(error: unknown): boolean {
 }
 
 /** Convert provider/internal failures into stable, actionable public errors. */
-export function classifyModelError(error: unknown, action: "grading" | "interviewer" | "matching" = "grading"): ModelErrorInfo {
+export function classifyModelError(
+  error: unknown,
+  action: "grading" | "interviewer" | "matching" | "generation" = "grading",
+): ModelErrorInfo {
+  const label = action === "interviewer" ? "The interviewer" : action === "matching" ? "Job matching" : action === "generation" ? "Problem generation" : "Grading";
   if (isAbortError(error)) {
     return { code: "cancelled", message: "Request cancelled.", retryable: false, status: 499 };
   }
   if (error instanceof Anthropic.APIConnectionTimeoutError || error instanceof OpenAI.APIConnectionTimeoutError) {
     return {
       code: "timeout",
-      message: `${action === "interviewer" ? "The interviewer" : action === "matching" ? "Job matching" : "Grading"} took too long. Your work is safe; try again.`,
+      message: `${label} took too long. Your work is safe; try again.`,
       retryable: true,
       status: 504,
     };

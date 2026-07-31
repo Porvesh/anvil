@@ -68,7 +68,8 @@ async function main() {
   let byokConnected = false;
   let byokProvider = null;
   let returnNoJdMatch = true;
-  let generationRequests = 0;
+  let operatorGenerationRequests = 0;
+  let tailoredGenerationRequests = 0;
   await page.route("**/api/byok", async (route) => {
     const method = route.request().method();
     if (method === "POST") {
@@ -117,8 +118,24 @@ async function main() {
     });
   });
   await page.route("**/api/generate", async (route) => {
-    generationRequests += 1;
+    operatorGenerationRequests += 1;
     await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "must not run" }) });
+  });
+  await page.route("**/api/generate/tailored", async (route) => {
+    tailoredGenerationRequests += 1;
+    const payload = route.request().postDataJSON();
+    if (payload.difficulty !== "medium" || !payload.jd || !payload.sessionId) {
+      throw new Error("Tailored generation omitted JD matching context.");
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "text/event-stream",
+      body: [
+        `data: ${JSON.stringify({ type: "phase", phase: "writing", note: "Writing a tailored debug problem" })}`,
+        `data: ${JSON.stringify({ type: "done", problemId: debug.id, problemType: "debug", title: debug.title })}`,
+        "",
+      ].join("\n\n"),
+    });
   });
   const sse = (text) => `data: ${JSON.stringify({ type: "delta", text })}\n\ndata: ${JSON.stringify({ type: "done" })}\n\n`;
   await page.route("**/api/hint", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: sse("Trace the boundary condition first.") }));
@@ -138,16 +155,18 @@ async function main() {
   log("✓ provider-selectable BYOK is global and keeps plaintext out of browser storage");
 
   await page.getByRole("button", { name: /Match me a problem/ }).click();
-  await page.getByText(/No close problem match is banked/).waitFor();
-  if (new URL(page.url()).pathname !== "/") throw new Error("An empty JD match silently redirected to a random problem.");
-  if (generationRequests !== 0) throw new Error("An empty JD match invoked operator-funded generation.");
-  log("✓ weak JD matches stay honest instead of redirecting to a random problem");
+  await page.waitForURL(new RegExp(`/solve/${debug.id}$`));
+  if (tailoredGenerationRequests !== 1) throw new Error("An empty JD match did not invoke tailored BYOK generation.");
+  if (operatorGenerationRequests !== 0) throw new Error("An empty JD match invoked operator-funded generation.");
+  log("✓ a bank miss generates a tailored problem with BYOK and opens it");
 
+  await page.goto(BASE, { waitUntil: "networkidle" });
   returnNoJdMatch = false;
   await page.getByRole("button", { name: /Match me a problem/ }).click();
   await page.waitForURL(new RegExp(`/solve/${debug.id}$`));
-  if (generationRequests !== 0) throw new Error("Public JD matching invoked operator-funded generation.");
-  log("✓ JD matching uses BYOK and never invokes operator generation");
+  if (tailoredGenerationRequests !== 1) throw new Error("A bank hit generated a duplicate problem.");
+  if (operatorGenerationRequests !== 0) throw new Error("Public JD matching invoked operator-funded generation.");
+  log("✓ a bank hit avoids duplicate generation and never invokes the operator pipeline");
 
   // Debug edits and run context survive a full reload.
   await page.goto(`${BASE}/solve/${debug.id}`, { waitUntil: "networkidle" });

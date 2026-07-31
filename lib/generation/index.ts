@@ -8,7 +8,11 @@
  */
 import type { PrismaClient } from "@prisma/client";
 import type { AnswerKeyIssue, Difficulty, ProblemType } from "../types";
+import type { ModelClient } from "../ai/client";
+import { anthropicModelClient, modelFor } from "../ai/client";
+import { anthropic } from "../anthropic/client";
 import { CALLS } from "../anthropic/models";
+import { isAbortError } from "../anthropic/reliability";
 import { parseTags } from "../tags";
 import { GenerationRefusedError, generateDebug, generateDesign, generateReview } from "./generate";
 import { selfCheckDebug, selfCheckDesign, selfCheckReview } from "./selfcheck";
@@ -19,6 +23,9 @@ export interface GenerateOpts {
   topic?: string;
   jd?: string;
   maxAttempts?: number;
+  /** Request-scoped for BYOK; omitted by trusted CLI/worker generation. */
+  client?: ModelClient;
+  signal?: AbortSignal;
   /** GenerationJob this run belongs to, recorded on the row for provenance. */
   jobId?: string;
   /** Called with a one-line progress note per attempt (CLI logging, SSE phases). */
@@ -46,15 +53,21 @@ export interface GenerateResult {
  *    authors vulnerable code, so refusals are expected, not exceptional.
  */
 export async function generateAndPersist(prisma: PrismaClient, opts: GenerateOpts): Promise<GenerateResult | null> {
-  const { type, difficulty, topic, jd, maxAttempts = 3, jobId, onProgress } = opts;
+  const { type, difficulty, topic, jd, maxAttempts = 3, jobId, onProgress, signal } = opts;
   const note = (msg: string) => onProgress?.(msg);
+  const client = opts.client ?? anthropicModelClient(anthropic);
 
-  let model: string = CALLS.generation.model;
+  // Explicit model overrides belong only to Anthropic's refusal fallback. The
+  // provider adapter owns OpenAI routing, so a BYOK request can never inherit
+  // an Anthropic model slug.
+  let model: string | undefined = client.provider === "anthropic" ? CALLS.generation.model : undefined;
+  const site = type === "design" ? "generationDesign" : type === "review" ? "generationReview" : "generation";
+  const generatedBy = () => model ?? modelFor(client, site);
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       if (type === "debug") {
-        const p = await generateDebug(difficulty, topic, jd, model);
+        const p = await generateDebug(client, difficulty, topic, jd, model, signal);
 
         // The file(s) the answer key points at ARE where the user must edit — force
         // them editable so the model can't accidentally ship an unsolvable problem
@@ -91,18 +104,18 @@ export async function generateAndPersist(prisma: PrismaClient, opts: GenerateOpt
             answerKey: p.answerKey as unknown as object,
             qualityScore: check.qualityScore,
             source: "generated",
-            generatorModel: model,
+            generatorModel: generatedBy(),
             sourceJobId: jobId ?? null,
             tags: parseTags(p.tags),
           },
           select: { id: true, title: true },
         });
-        return { ...row, qualityScore: check.qualityScore, attempts: attempt, generatorModel: model };
+        return { ...row, qualityScore: check.qualityScore, attempts: attempt, generatorModel: generatedBy() };
       }
 
       if (type === "design") {
-        const p = await generateDesign(difficulty, topic, jd, model);
-        const check = await selfCheckDesign({ ...p, rubric: p.rubric as AnswerKeyIssue[] });
+        const p = await generateDesign(client, difficulty, topic, jd, model, signal);
+        const check = await selfCheckDesign(client, { ...p, rubric: p.rubric as AnswerKeyIssue[] }, signal);
         if (!check.ok) {
           note(`attempt ${attempt}: rejected — ${check.reason}`);
           continue;
@@ -121,16 +134,16 @@ export async function generateAndPersist(prisma: PrismaClient, opts: GenerateOpt
             answerKey: p.rubric as unknown as object,
             qualityScore: check.qualityScore,
             source: "generated",
-            generatorModel: model,
+            generatorModel: generatedBy(),
             sourceJobId: jobId ?? null,
             tags: parseTags(p.tags),
           },
           select: { id: true, title: true },
         });
-        return { ...row, qualityScore: check.qualityScore, attempts: attempt, generatorModel: model };
+        return { ...row, qualityScore: check.qualityScore, attempts: attempt, generatorModel: generatedBy() };
       }
 
-      const p = await generateReview(difficulty, topic, jd, model);
+      const p = await generateReview(client, difficulty, topic, jd, model, signal);
       const check = await selfCheckReview(p);
       if (!check.ok) {
         note(`attempt ${attempt}: rejected — ${check.reason}`);
@@ -148,15 +161,18 @@ export async function generateAndPersist(prisma: PrismaClient, opts: GenerateOpt
           answerKey: p.answerKey as unknown as object,
           qualityScore: check.qualityScore,
           source: "generated",
-          generatorModel: model,
+          generatorModel: generatedBy(),
           sourceJobId: jobId ?? null,
           tags: parseTags(p.tags),
         },
         select: { id: true, title: true },
       });
-      return { ...row, qualityScore: check.qualityScore, attempts: attempt, generatorModel: model };
+      return { ...row, qualityScore: check.qualityScore, attempts: attempt, generatorModel: generatedBy() };
     } catch (err) {
-      if (err instanceof GenerationRefusedError && model !== CALLS.generationFallback.model) {
+      // A disconnected browser owns this request-scoped key. Stop immediately;
+      // retrying after cancellation only spends against a result nobody can use.
+      if (signal?.aborted || isAbortError(err)) throw err;
+      if (client.provider === "anthropic" && err instanceof GenerationRefusedError && model !== CALLS.generationFallback.model) {
         // Don't burn an attempt on a refusal: the request was never really
         // tried, and the fallback deserves its own full budget.
         model = CALLS.generationFallback.model;

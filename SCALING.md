@@ -12,7 +12,8 @@ This document separates properties that already scale from deployment work that 
 | Loading a problem | Indexed database read | Low |
 | Grading | User-funded model call(s) + attempt write | Database write only |
 | Hint/Socratic turn | User-funded streamed model call | Connection time only |
-| Generation | Separate worker, once per bank asset | Amortized |
+| Tailored generation on a bank miss | User-funded live request, once per bank asset | Amortized, but long-lived |
+| Operator batch generation | Separate worker, once per bank asset | Amortized |
 
 The web tier stores no live editor state and needs no session affinity. A candidate can run tests repeatedly without creating server work.
 
@@ -27,6 +28,7 @@ submit review     -> deterministic matcher + one balanced-tier judgment + transa
 submit design     -> two strongest-tier judgments + transaction
 follow-up turn    -> one strongest-tier stream (optional)
 vote              -> one transactional upsert/tally update
+JD bank miss      -> streamed generation + oracle + one problem write
 ```
 
 Drafts are browser-local. BYOK credentials are encrypted in short-lived HttpOnly cookies and are not database records. Persisted attempts, grades, votes, generation jobs, and the shared bank live in the database.
@@ -55,13 +57,13 @@ Interactive model calls are charged to each user's selected Anthropic or OpenAI 
 - Stable problem/key prefixes use prompt-cache breakpoints.
 - Every call site has a deadline and explicit SDK retry budget.
 - Only transient connection/408/409/429/5xx failures retry.
-- Generation is rate-budgeted, queued, verified once, and reused.
-- JD matching serves existing tagged problems; generation remains a separate operator action.
-- Domain-specific JDs require at least one shared domain tag; an empty result is surfaced honestly instead of falling back to a random bank item.
+- Generation is rate-budgeted, verified once, and reused. Operator batches are queued; a BYOK bank miss stays on one streamed request so the key is never persisted.
+- JD matching serves an existing tagged problem first and generates only when none clears the relevance gate.
+- Domain-specific JDs require at least one shared domain tag; an empty result creates a tailored problem instead of falling back to a random bank item.
 - Cancellation propagates to the provider for chat and grading.
 - User credentials expire after eight hours and never fall back to the operator key.
 - OpenAI Responses API calls disable provider-side response storage with `store: false`.
-- Public routes cannot enqueue operator-funded generation.
+- Public routes cannot enqueue operator-funded generation; the miss path uses only the connected user's provider.
 
 At higher traffic, record per-call-site tokens, cache reads, latency, status, and retry count. Add grading backpressure before organization TPM limits become user-visible.
 
@@ -77,6 +79,8 @@ The current endpoint loads the filtered set, computes Wilson scores in applicati
 ### 5. Worker throughput
 
 Generation jobs already live outside requests and support atomic claims, stale-claim recovery, retry backoff, and terminal JD deletion. PostgreSQL permits multiple workers to claim distinct jobs safely. Scale workers based on queue age and provider limits, not web traffic.
+
+Request-scoped BYOK generation is intentionally different: keeping the key out of storage means keeping the HTTP stream and Node process alive through generation and verification. Deploy the web tier in a Python-capable container with an execution limit above the route's 800-second ceiling. Before moving this path to short-lived serverless functions, add an ephemeral credential broker whose encrypted payload has a strict TTL and is deleted on claim/completion; do not put plaintext keys in `GenerationJob`.
 
 ## Correctness under concurrency
 
@@ -101,6 +105,7 @@ Generation jobs already live outside requests and support atomic claims, stale-c
 - [ ] `BYOK_ENCRYPTION_KEY` configured as a high-entropy web secret
 - [ ] `ANTHROPIC_API_KEY` configured only for the worker/maintenance environment
 - [ ] `GENERATION_ADMIN_TOKEN` configured if the enqueue API is deployed
+- [ ] Web container includes `python3` and permits 800-second tailored-generation requests
 - [ ] Worker deployed with `python3` and graceful shutdown
 - [ ] Weekly live E2E secret configured (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`)
 - [ ] Structured provider/worker metrics and alerts installed

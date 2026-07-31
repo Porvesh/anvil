@@ -8,6 +8,8 @@ import { notifyByokRequired } from "./byokClient";
 export interface StreamHandlers {
   onDelta: (text: string) => void;
   onError?: (message: string) => void;
+  onPhase?: (phase: string, note?: string) => void;
+  onDone?: (payload: Record<string, unknown>) => void;
 }
 
 export interface StreamOptions {
@@ -52,6 +54,8 @@ export async function streamSSE(
         try {
           const payload = JSON.parse(dataLine.slice(5).trim());
           if (payload.type === "delta") handlers.onDelta(payload.text);
+          else if (payload.type === "phase") handlers.onPhase?.(payload.phase, payload.note);
+          else if (payload.type === "done") handlers.onDone?.(payload);
           else if (payload.type === "error") {
             notifyByokRequired(payload.code);
             handlers.onError?.(payload.message);

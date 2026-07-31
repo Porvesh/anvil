@@ -8,7 +8,8 @@
  */
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { anthropic } from "../anthropic/client";
+import type { ModelClient } from "../ai/client";
+import { structuredModelOutput } from "../ai/client";
 import { callParams, isRefusal } from "../anthropic/models";
 import { modelRequestOptions } from "../anthropic/reliability";
 import { TagSchema } from "../tags";
@@ -40,19 +41,40 @@ export class GenerationRefusedError extends Error {
  * request on the fallback (see GenerationRefusedError).
  */
 async function streamStructured<T extends z.ZodTypeAny>(
+  client: ModelClient,
   schema: T,
   system: string,
   user: string,
   model?: string,
   site: "generation" | "generationDesign" | "generationReview" = "generation",
+  signal?: AbortSignal,
 ): Promise<z.infer<T>> {
+  // OpenAI's Responses API adapter already owns its model routing, structured
+  // output format, no-storage flag, timeout, and abort handling. The Anthropic
+  // branch stays streamed because the SDK requires streaming for the 32-64K
+  // output budgets used by multi-file generation.
+  if (client.provider === "openai") {
+    const parsed = await structuredModelOutput(
+      client,
+      site,
+      schema,
+      `generated_${site}`,
+      system,
+      user,
+      null,
+      signal,
+    );
+    if (!parsed) throw new Error("generation produced no structured output — retrying");
+    return parsed as z.infer<T>;
+  }
+
   const { output_config, ...params } = callParams(site, { model });
-  const stream = anthropic.messages.stream({
+  const stream = client.sdk.messages.stream({
     ...params,
     output_config: { ...output_config, format: zodOutputFormat(schema) },
     system,
     messages: [{ role: "user", content: user }],
-  }, modelRequestOptions(site));
+  }, modelRequestOptions(site, signal));
   let msg: Awaited<ReturnType<typeof stream.finalMessage>>;
   try {
     msg = await stream.finalMessage();
@@ -144,7 +166,14 @@ const GeneratedDebugSchema = z.object({
 });
 export type GeneratedDebug = z.infer<typeof GeneratedDebugSchema>;
 
-export async function generateDebug(difficulty: Difficulty, topic?: string, jd?: string, model?: string): Promise<GeneratedDebug> {
+export async function generateDebug(
+  client: ModelClient,
+  difficulty: Difficulty,
+  topic?: string,
+  jd?: string,
+  model?: string,
+  signal?: AbortSignal,
+): Promise<GeneratedDebug> {
   const system = [
     "You author debugging exercises that feel like real production code, for an interview-practice tool.",
     "Constraints: pure Python only (runs in Pyodide — no network, no filesystem, no third-party packages beyond stdlib).",
@@ -163,7 +192,7 @@ export async function generateDebug(difficulty: Difficulty, topic?: string, jd?:
   ]
     .filter(Boolean)
     .join("\n");
-  return streamStructured(GeneratedDebugSchema, system, user, model);
+  return streamStructured(client, GeneratedDebugSchema, system, user, model, "generation", signal);
 }
 
 // --- Design ---
@@ -197,7 +226,14 @@ const GeneratedDesignSchema = z.object({
 });
 export type GeneratedDesign = z.infer<typeof GeneratedDesignSchema>;
 
-export async function generateDesign(difficulty: Difficulty, topic?: string, jd?: string, model?: string): Promise<GeneratedDesign> {
+export async function generateDesign(
+  client: ModelClient,
+  difficulty: Difficulty,
+  topic?: string,
+  jd?: string,
+  model?: string,
+  signal?: AbortSignal,
+): Promise<GeneratedDesign> {
   const system = [
     "You author system-design interview problems and the rubric used to grade them.",
     "The brief should be concrete and scoped — a real system with real constraints, not 'design Twitter'.",
@@ -216,7 +252,7 @@ export async function generateDesign(difficulty: Difficulty, topic?: string, jd?
   ]
     .filter(Boolean)
     .join("\n");
-  return streamStructured(GeneratedDesignSchema, system, user, model, "generationDesign");
+  return streamStructured(client, GeneratedDesignSchema, system, user, model, "generationDesign", signal);
 }
 
 // --- Review ---
@@ -280,7 +316,14 @@ const GeneratedReviewSchema = z.object({
 });
 export type GeneratedReview = z.infer<typeof GeneratedReviewSchema>;
 
-export async function generateReview(difficulty: Difficulty, topic?: string, jd?: string, model?: string): Promise<GeneratedReview> {
+export async function generateReview(
+  client: ModelClient,
+  difficulty: Difficulty,
+  topic?: string,
+  jd?: string,
+  model?: string,
+  signal?: AbortSignal,
+): Promise<GeneratedReview> {
   const system = [
     "You author code-review exercises: a large, plausible AI-generated PR (git diff) hiding planted flaws.",
     "The PR description should sound reasonable — the skill being trained is catching bugs in convincing AI slop.",
@@ -338,5 +381,5 @@ export async function generateReview(difficulty: Difficulty, topic?: string, jd?
   ]
     .filter(Boolean)
     .join("\n");
-  return streamStructured(GeneratedReviewSchema, system, user, model, "generationReview");
+  return streamStructured(client, GeneratedReviewSchema, system, user, model, "generationReview", signal);
 }

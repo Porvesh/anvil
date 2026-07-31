@@ -11,8 +11,7 @@
 import { execFile } from "node:child_process";
 import type { AnswerKeyIssue, DiffHunk, Problem, SolutionFile, TestSuite } from "../types";
 import { gradeDesign } from "../grading";
-import { anthropic } from "../anthropic/client";
-import { anthropicModelClient } from "../ai/client";
+import type { ModelClient } from "../ai/client";
 
 /** Python program mirroring lib/pyodide/harness.ts (multi-file), reading a JSON
  *  payload {files, setup, cases} on stdin. */
@@ -168,13 +167,13 @@ const MIN_SEPARATION = 25;
  * the rubric can't separate answers the generator itself wrote to be different,
  * it certainly can't separate two users.
  */
-export async function selfCheckDesign(problem: {
+export async function selfCheckDesign(client: ModelClient, problem: {
   title: string;
   prompt: string;
   rubric: AnswerKeyIssue[];
   strongAnswer: string;
   weakAnswer: string;
-}): Promise<SelfCheckResult> {
+}, signal?: AbortSignal): Promise<SelfCheckResult> {
   if (problem.rubric.length < 3) {
     return { ok: false, reason: `rubric has only ${problem.rubric.length} dimensions`, qualityScore: 0 };
   }
@@ -188,10 +187,9 @@ export async function selfCheckDesign(problem: {
     type: "design",
   } as unknown as Problem;
 
-  const operatorClient = anthropicModelClient(anthropic);
   const [strong, weak] = await Promise.all([
-    gradeDesign(operatorClient, asProblem, problem.strongAnswer),
-    gradeDesign(operatorClient, asProblem, problem.weakAnswer),
+    gradeDesign(client, asProblem, problem.strongAnswer, signal),
+    gradeDesign(client, asProblem, problem.weakAnswer, signal),
   ]);
 
   const separation = strong.score - weak.score;

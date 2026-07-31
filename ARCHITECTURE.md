@@ -8,7 +8,7 @@
 2. **The browser is the execution tier.** Debug code runs in Pyodide inside a Web Worker. The server never executes a candidate submission.
 3. **The answer key stays server-side.** `lib/problem.ts` is the only Prisma-row-to-public-problem mapper. It removes the key, its count, and legacy JD context.
 4. **Scoring is assembled in code.** Models supply bounded judgments; `lib/grading/index.ts` owns the numeric formula and persists the model provenance.
-5. **Generation never blocks a request.** The web tier enqueues a `GenerationJob`; a Python-capable worker generates, verifies, and banks it.
+5. **A bank miss creates an asset.** JD matching reuses a verified problem when possible; otherwise a streamed BYOK request generates, verifies, and banks a tailored problem. Operator batch generation remains queued on a worker.
 
 ## 2. Runtime map
 
@@ -37,18 +37,19 @@ Prisma
   SQLite in the checked-in local configuration
   PostgreSQL is the production target
         |
-        +---- GenerationJob <---- worker/index.ts + local python3 oracle
+        +---- tailored miss: live request + local python3/rubric oracle
+        +---- GenerationJob <---- operator worker + local python3 oracle
 ```
 
 ## 3. User journey
 
 ### Selecting a problem
 
-The home page sends a pasted JD to `POST /api/jd/match`. The selected provider's efficient model extracts tags from the fixed vocabulary in `lib/tags.ts`. Existing problems are ranked by tag overlap, difficulty fit, and Wilson score. Explicit domains such as robotics, video, payments, or search act as relevance gates: generic systems overlap cannot satisfy a domain-specific role. If no candidate clears the threshold, the UI says so and stays put rather than redirecting to a random problem.
+The home page sends a pasted JD to `POST /api/jd/match`. The selected provider's efficient model extracts tags from the fixed vocabulary in `lib/tags.ts`. Existing problems are ranked by tag overlap, difficulty fit, and Wilson score. Explicit domains such as robotics, video, payments, or search act as relevance gates: generic systems overlap cannot satisfy a domain-specific role. If no candidate clears the threshold, `POST /api/generate/tailored` streams generation and verification phases using the connected key, persists the verified result, and opens it automatically. A later similar JD can reuse that bank asset.
 
 Interactive model work requires a user-owned Anthropic or OpenAI API key. `POST /api/byok` verifies the key against the selected provider's Models API, seals the provider and key with AES-256-GCM, and returns an eight-hour HttpOnly/SameSite cookie (`Secure` on HTTPS). AI routes decrypt it only for the current request and create an uncached provider client. There is no fallback to the operator key. The plaintext is never written to Prisma, localStorage, logs, or response bodies. OpenAI Responses API calls set `store: false`.
 
-The user always enters an existing bank problem. Public browser traffic never starts generation: that asynchronous path cannot use a transient user key without persisting it, so `POST /api/generate` requires a separate operator bearer token. Bank expansion happens through explicit operator/CLI workflows rather than unbounded visitor spend.
+The tailored route holds the decrypted key only in the live request. It persists the finished problem and its fixed-vocabulary tags, but never the key or source JD. Disconnecting aborts provider work rather than moving the credential into a queue. This path requires a long-lived Node runtime with `python3`; the operator `POST /api/generate` queue remains the scalable batch path and still requires a bearer token.
 
 ### Solving
 
@@ -71,7 +72,7 @@ The route stores `Attempt`, atomically increments `Problem.timesAttempted`, and 
 
 ## 4. Generation and verification
 
-`lib/generation/index.ts` is shared by the CLI and worker:
+`lib/generation/index.ts` is shared by the BYOK request, CLI, and worker:
 
 ```text
 prompt/JD
@@ -87,7 +88,7 @@ prompt/JD
 - Opus safety refusals switch generation to the Sonnet fallback without consuming an oracle attempt.
 - Transient failures retry within both SDK and job budgets. Queue retries use backoff.
 
-The worker atomically claims jobs, reclaims stale claims, writes progress notes, and clears the pasted JD on terminal success or failure. SQLite uses a transactional claim path for local development; PostgreSQL uses row-lock semantics when deployed.
+The live BYOK path streams progress directly and never creates a `GenerationJob`, so its credential and JD disappear with the request. The operator worker atomically claims jobs, reclaims stale claims, writes progress notes, and clears the pasted JD on terminal success or failure. SQLite uses a transactional claim path for local development; PostgreSQL uses row-lock semantics when deployed.
 
 ## 5. Data model
 
@@ -124,6 +125,7 @@ The checked-in Prisma datasource is SQLite (`file:./dev.db`). `npm run db:postgr
 | `POST /api/hint` | Stream solve-time hint without ground truth |
 | `POST /api/socratic` | Stream and persist post-grade follow-up |
 | `POST /api/jd/match` | Extract tags and match the bank |
+| `POST /api/generate/tailored` | Stream BYOK generation after a bank miss |
 | `POST /api/generate` | Operator-authenticated generation enqueue |
 | `GET /api/generate/[id]/stream` | Stream job phase changes |
 | `GET /api/history` | Attempts for an anonymous browser session |
@@ -156,7 +158,7 @@ Browser abort signals flow through `fetch`, Next request signals, grading, and A
 | Hint cannot see the answer key | Hint route uses `toPublicProblem` |
 | Socratic uses persisted ground truth | Client sends only `attemptId` and transcript |
 | Score arithmetic is not model-authored | `lib/grading/index.ts` |
-| Pasted JD is not banked or served | Temporary `GenerationJob.jd`, cleared terminally |
+| Pasted JD is not banked or served | BYOK generation keeps it request-local; queued operator jobs clear it terminally |
 | User API keys stay server-side | AES-GCM HttpOnly cookie; request-scoped client; no platform-key fallback |
 | BYOK mutations resist CSRF | Exact same-origin validation + SameSite=Strict cookie |
 | Untrusted Python stays off the server | Pyodide worker in the browser |
@@ -176,4 +178,4 @@ Solve drafts contain user-authored work and conversation text in that browser's 
 2. Install a Redis/KV `Store` before running more than one web instance.
 3. Add cursor pagination and a stored/indexed rank score before the bank reaches thousands of rows.
 4. Add structured logs/metrics for queue depth, generation rejection, provider latency/cost, and rubric divergence.
-5. Grow and curate the bank beyond the current small development dataset.
+5. Move request-scoped generation into an ephemeral-key job system before relying on short-lived serverless functions.

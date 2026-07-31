@@ -19,19 +19,22 @@ npm install
 npm run db:migrate        # create the local SQLite db
 npm run seed              # sync the hand-authored bank without deleting attempts
 cp .env.example .env
-# Set BYOK_ENCRYPTION_KEY; ANTHROPIC_API_KEY is only needed by generation/maintenance scripts.
+# Set BYOK_ENCRYPTION_KEY; ANTHROPIC_API_KEY is only needed by operator generation/maintenance scripts.
 npm run dev               # → http://localhost:3000
 ```
 
 Open **Connect key** in the top bar to use grading, hints, Socratic follow-up,
-or JD matching. The user selects Anthropic or OpenAI; their key is validated once, encrypted into
+or JD matching and tailored problem generation. The user selects Anthropic or OpenAI; their key is validated once, encrypted into
 an eight-hour HttpOnly cookie, and never stored in Prisma or browser-readable
 storage. Consumer Claude/ChatGPT subscriptions do not provide API billing; the
 key must come from the selected provider's API platform account.
 
-Public browser traffic cannot invoke the operator-funded generation pipeline.
-Bank generation uses `ANTHROPIC_API_KEY` only through CLI/worker workflows or
-the bearer-protected `/api/generate` operator endpoint.
+JD matching checks the verified shared bank first. If no relevant exercise exists,
+the browser keeps one streamed request open while the connected user's provider
+generates and verifies a tailored problem; only the finished problem is banked,
+never the key or pasted JD. Public traffic still cannot invoke the operator-funded
+pipeline, which uses `ANTHROPIC_API_KEY` only through CLI/worker workflows or the
+bearer-protected `/api/generate` endpoint.
 
 ## Commands
 
