@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { toProblem } from "@/lib/problem";
 import { SubmissionModeError, gradeSubmission } from "@/lib/grading";
@@ -6,6 +6,7 @@ import { gradeBodySchema } from "@/lib/validation";
 import { clientKey, rateLimit } from "@/lib/ratelimit";
 import type { RunRecord } from "@/lib/types";
 import { classifyModelError, isAbortError } from "@/lib/anthropic/reliability";
+import { byokRequiredResponse, userAnthropicFromRequest } from "@/lib/anthropic/byok";
 
 export const runtime = "nodejs";
 
@@ -14,11 +15,13 @@ export const runtime = "nodejs";
  * the attempt. Returns { attemptId, grade }; the results screen then drives the
  * Socratic follow-up via /api/socratic using the attemptId.
  */
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   const limit = rateLimit(clientKey(req));
   if (!limit.ok) {
     return NextResponse.json({ error: "Rate limit exceeded — try again shortly." }, { status: 429 });
   }
+  const client = userAnthropicFromRequest(req);
+  if (!client) return byokRequiredResponse();
 
   const parsed = gradeBodySchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
@@ -32,7 +35,7 @@ export async function POST(req: Request) {
 
   let grade;
   try {
-    grade = await gradeSubmission(problem, submission, req.signal);
+    grade = await gradeSubmission(client, problem, submission, req.signal);
   } catch (err) {
     if (err instanceof SubmissionModeError) {
       return NextResponse.json({ error: "Submission mode does not match problem type" }, { status: 400 });

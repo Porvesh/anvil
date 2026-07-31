@@ -78,6 +78,8 @@ export const jdMatchBodySchema = z.object({
   // is far more than any real posting.
   jd: z.string().min(40, "Paste a bit more of the job description").max(12_000),
   sessionId: z.string().min(1),
+  type: z.enum(["debug", "review", "design"]).optional(),
+  difficulty: z.enum(["easy", "medium", "hard"]).optional(),
 });
 export type JdMatchBody = z.infer<typeof jdMatchBodySchema>;
 

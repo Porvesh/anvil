@@ -1,10 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { REQUEST_TIMEOUT_MS } from "./clientFactory";
 
 /**
- * Anthropic client singleton. Reads ANTHROPIC_API_KEY from the environment
- * (loaded from .env by Next.js). Cached on globalThis so Next.js dev hot-reload
- * doesn't spin up a new client per edit. Server-only — never import from a
- * client component; all model calls are proxied through API routes (spec §7).
+ * Operator client for generation and maintenance work. Interactive routes do
+ * not import this singleton: they construct an uncached client from the user's
+ * sealed BYOK session. Cached only to avoid dev hot-reload churn.
  */
 const globalForAnthropic = globalThis as unknown as { anthropic?: Anthropic };
 
@@ -18,8 +18,6 @@ const globalForAnthropic = globalThis as unknown as { anthropic?: Anthropic };
  * something worth waiting for; failing fast lets the retry (or the fallback
  * model) actually happen.
  */
-const REQUEST_TIMEOUT_MS = 8 * 60_000;
-
 // Call sites opt into their own retry/deadline policy through reliability.ts.
 // Keeping the singleton at zero retries prevents a new call from silently using
 // the SDK default and turning one user action into three unbounded requests.

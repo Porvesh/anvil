@@ -10,8 +10,8 @@ This document separates properties that already scale from deployment work that 
 | Python execution | Browser Pyodide Web Worker | None |
 | Draft recovery | Browser `localStorage` | None |
 | Loading a problem | Indexed database read | Low |
-| Grading | Model call(s) + attempt write | Variable |
-| Hint/Socratic turn | Streamed model call | Variable |
+| Grading | User-funded model call(s) + attempt write | Database write only |
+| Hint/Socratic turn | User-funded streamed model call | Connection time only |
 | Generation | Separate worker, once per bank asset | Amortized |
 
 The web tier stores no live editor state and needs no session affinity. A candidate can run tests repeatedly without creating server work.
@@ -29,7 +29,7 @@ follow-up turn    -> one Opus stream (optional)
 vote              -> one transactional upsert/tally update
 ```
 
-Drafts are browser-local. Persisted attempts, grades, votes, generation jobs, and the shared bank live in the database.
+Drafts are browser-local. BYOK credentials are encrypted in short-lived HttpOnly cookies and are not database records. Persisted attempts, grades, votes, generation jobs, and the shared bank live in the database.
 
 ## Bottlenecks in order
 
@@ -50,14 +50,16 @@ The domain schema is portable by design, but the operational migration has not b
 
 ### 3. Model cost and capacity
 
-Model calls are the principal marginal cost. Existing controls:
+Interactive model calls are charged to each user's Anthropic Console account. The operator key is restricted to queued problem generation, maintenance scripts, and live CI. Existing controls:
 
 - Stable problem/key prefixes use prompt-cache breakpoints.
 - Every call site has a deadline and explicit SDK retry budget.
 - Only transient connection/408/409/429/5xx failures retry.
 - Generation is rate-budgeted, queued, verified once, and reused.
-- JD matching serves existing tagged problems before generating.
+- JD matching serves existing tagged problems; generation remains a separate operator action.
 - Cancellation propagates to the provider for chat and grading.
+- User credentials expire after eight hours and never fall back to the operator key.
+- Public routes cannot enqueue operator-funded generation.
 
 At higher traffic, record per-call-site tokens, cache reads, latency, status, and retry count. Add grading backpressure before organization TPM limits become user-visible.
 
@@ -94,7 +96,9 @@ Generation jobs already live outside requests and support atomic claims, stale-c
 - [ ] PostgreSQL migration tested under concurrent writers
 - [ ] Pooled and direct database URLs configured
 - [ ] Redis/KV rate-limit store installed
-- [ ] `ANTHROPIC_API_KEY` configured as a secret
+- [ ] `BYOK_ENCRYPTION_KEY` configured as a high-entropy web secret
+- [ ] `ANTHROPIC_API_KEY` configured only for the worker/maintenance environment
+- [ ] `GENERATION_ADMIN_TOKEN` configured if the enqueue API is deployed
 - [ ] Worker deployed with `python3` and graceful shutdown
 - [ ] Weekly live E2E secret configured
 - [ ] Structured provider/worker metrics and alerts installed

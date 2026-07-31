@@ -65,6 +65,18 @@ async function main() {
 
   let holdGrade = false;
   let releaseGrade;
+  let byokConnected = false;
+  let generationRequests = 0;
+  await page.route("**/api/byok", async (route) => {
+    const method = route.request().method();
+    if (method === "POST") byokConnected = true;
+    if (method === "DELETE") byokConnected = false;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ connected: byokConnected, expiresAt: byokConnected ? Date.now() + 60_000 : null }),
+    });
+  });
   await page.route("**/api/grade", async (route) => {
     const payload = route.request().postDataJSON();
     if (holdGrade) {
@@ -80,9 +92,37 @@ async function main() {
       })
       .catch(() => {});
   });
+  await page.route("**/api/jd/match", async (route) => {
+    const payload = route.request().postDataJSON();
+    if (payload.difficulty !== "medium") throw new Error("JD match omitted the selected difficulty.");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tags: ["idempotency"], seniority: "senior", confidence: 0.2, matches: [{ id: debug.id, type: "debug" }] }),
+    });
+  });
+  await page.route("**/api/generate", async (route) => {
+    generationRequests += 1;
+    await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "must not run" }) });
+  });
   const sse = (text) => `data: ${JSON.stringify({ type: "delta", text })}\n\ndata: ${JSON.stringify({ type: "done" })}\n\n`;
   await page.route("**/api/hint", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: sse("Trace the boundary condition first.") }));
   await page.route("**/api/socratic", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: sse("What invariant would prevent this failure?") }));
+
+  // The global BYOK control connects without retaining the plaintext in browser storage.
+  await page.goto(BASE, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Connect Anthropic API key" }).click();
+  await page.getByLabel("API key", { exact: true }).fill("sk-ant-api03-deterministic-smoke-key");
+  await page.getByRole("button", { name: "Connect key", exact: true }).click();
+  await page.getByRole("button", { name: "Anthropic API key connected" }).waitFor();
+  const leakedKey = await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }).includes("deterministic-smoke-key"));
+  if (leakedKey) throw new Error("BYOK plaintext leaked into browser-readable storage.");
+  log("✓ BYOK connection is global and keeps plaintext out of browser storage");
+
+  await page.getByRole("button", { name: /Match me a problem/ }).click();
+  await page.waitForURL(new RegExp(`/solve/${debug.id}$`));
+  if (generationRequests !== 0) throw new Error("Public JD matching invoked operator-funded generation.");
+  log("✓ JD matching uses BYOK and never invokes operator generation");
 
   // Debug edits and run context survive a full reload.
   await page.goto(`${BASE}/solve/${debug.id}`, { waitUntil: "networkidle" });

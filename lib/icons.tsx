@@ -29,6 +29,16 @@ function base(size: number, props: SVGProps<SVGSVGElement>): SVGProps<SVGSVGElem
 
 type IconProps = { size?: number } & SVGProps<SVGSVGElement>;
 
+/** User-provided model credential. */
+export function IconKey({ size = 15, ...props }: IconProps) {
+  return (
+    <svg {...base(size, props)}>
+      <circle cx="8" cy="15" r="4" />
+      <path d="m11 12 9-9M16 7l3 3M14 9l3 3" />
+    </svg>
+  );
+}
+
 /** Read-only file marker (file tabs). */
 export function IconLock({ size = 12, ...props }: IconProps) {
   return (

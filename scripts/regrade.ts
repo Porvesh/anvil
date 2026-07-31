@@ -17,6 +17,7 @@ import "../lib/loadEnv";
 import { PrismaClient } from "@prisma/client";
 import { toProblem } from "../lib/problem";
 import { SubmissionModeError, gradeSubmission } from "../lib/grading";
+import { anthropic } from "../lib/anthropic/client";
 import type { Grade, ProblemType, ReviewComment, RunRecord, SolutionFile, Submission } from "../lib/types";
 
 const prisma = new PrismaClient();
@@ -81,7 +82,7 @@ async function main() {
     }
 
     try {
-      const fresh = await gradeSubmission(problem, submission);
+      const fresh = await gradeSubmission(anthropic, problem, submission);
       const delta = fresh.score - old.score;
       if (delta !== 0) {
         moved++;

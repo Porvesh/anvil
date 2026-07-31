@@ -10,8 +10,8 @@
  * prefix; only the user's submission varies per request (spec §13 prompt caching).
  */
 import { z } from "zod";
+import type Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { anthropic } from "./client";
 import { callParams } from "./models";
 import { modelRequestOptions } from "./reliability";
 import type { AnswerKeyIssue, Problem, ReviewComment, RunRecord, SolutionFile } from "../types";
@@ -94,6 +94,7 @@ function renderAnswerKey(answerKey: AnswerKeyIssue[]): string {
 // ---------------------------------------------------------------------------
 
 export async function judgeReview(
+  client: Anthropic,
   problem: Problem,
   unmatched: ReviewComment[],
   /** Ids of seeded issues the matcher scored as caught / missed — the headline
@@ -135,7 +136,7 @@ export async function judgeReview(
       ? ids.map((id) => `- ${withIds ? `[${id}] ` : ""}${byId.get(id)?.failure ?? id}`).join("\n")
       : "(none)";
 
-  const result = await anthropic.messages.parse({
+  const result = await client.messages.parse({
     ...callParams("judgeReview"),
     system,
     messages: [
@@ -186,7 +187,7 @@ function renderRubric(answerKey: AnswerKeyIssue[]): string {
     .join("\n");
 }
 
-export async function judgeDesign(problem: Problem, doc: string, signal?: AbortSignal): Promise<DesignJudgment> {
+export async function judgeDesign(client: Anthropic, problem: Problem, doc: string, signal?: AbortSignal): Promise<DesignJudgment> {
   const system = problemContext(
     [
       "You are grading a system-design exercise against a seeded rubric. The rubric below is ground truth.",
@@ -201,7 +202,7 @@ export async function judgeDesign(problem: Problem, doc: string, signal?: AbortS
     ].join("\n"),
   );
 
-  const result = await anthropic.messages.parse({
+  const result = await client.messages.parse({
     ...callParams("judgeDesign"),
     system,
     messages: [
@@ -239,6 +240,7 @@ function renderFiles(files: { path: string; content: string }[]): string {
 }
 
 export async function judgeDebug(
+  client: Anthropic,
   problem: Problem,
   finalFiles: SolutionFile[],
   runHistory: RunRecord[],
@@ -264,7 +266,7 @@ export async function judgeDebug(
     ? runHistory.map((r, i) => `Run ${i + 1}: ${r.passed} passed / ${r.failed} failed`).join("\n")
     : "(no runs recorded)";
 
-  const result = await anthropic.messages.parse({
+  const result = await client.messages.parse({
     ...callParams("judgeDebug"),
     system,
     messages: [

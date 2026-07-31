@@ -6,14 +6,22 @@
 import os from "node:os";
 import { chromium } from "playwright";
 
+if (!process.env.ANTHROPIC_API_KEY && typeof process.loadEnvFile === "function") {
+  try {
+    process.loadEnvFile(".env");
+  } catch {
+    // CI injects the key directly; a missing local file is handled below.
+  }
+}
+const E2E_API_KEY = process.env.ANTHROPIC_API_KEY;
+
 const BASE = (process.env.E2E_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
 // Screenshot target — was a hardcoded per-session temp dir from the machine the
 // suite was written on, which silently failed everywhere else.
 const SHOT = process.env.E2E_SHOT_DIR ?? os.tmpdir();
 const log = (...a) => console.log(...a);
 const fail = (msg) => {
-  console.error(`\n❌ FAIL: ${msg}`);
-  process.exitCode = 1;
+  throw new Error(msg);
 };
 
 // The intended fix for webhooks/batcher.py in the "Webhook batcher" seed problem.
@@ -142,6 +150,19 @@ async function main() {
   const heroOk = await page.getByText("Catch the bad PR").isVisible();
   log(heroOk ? "✓ home renders" : "✗ home hero missing");
   if (!heroOk) return fail("home did not render");
+  if (!E2E_API_KEY) return fail("ANTHROPIC_API_KEY is required for the live BYOK E2E run");
+  await page.getByRole("button", { name: "Connect Anthropic API key" }).click();
+  await page.getByLabel("API key", { exact: true }).fill(E2E_API_KEY);
+  await page.getByRole("button", { name: "Connect key", exact: true }).click();
+  await page.getByRole("button", { name: "Anthropic API key connected" }).waitFor({ timeout: 20000 });
+  const byokCookie = (await page.context().cookies(BASE)).find((cookie) => cookie.name === "anvil_byok");
+  if (!byokCookie?.httpOnly || byokCookie.sameSite !== "Strict") {
+    return fail("BYOK cookie is missing HttpOnly or SameSite=Strict protection");
+  }
+  if (byokCookie.value.includes(E2E_API_KEY) || (await page.evaluate(() => document.cookie.includes("anvil_byok")))) {
+    return fail("BYOK credential is browser-readable");
+  }
+  log("✓ user-owned Anthropic key connected for this browser session");
   await assertNoGroundTruthLeak(debug.id);
 
   // ---------- DEBUG SOLVE ----------
@@ -309,14 +330,15 @@ async function main() {
   if (allRows === 0) return fail("bank page listed no problems");
 
   await page.getByRole("button", { name: "Debug", exact: true }).click();
+  await page.waitForURL((url) => url.searchParams.get("type") === "debug", { timeout: 10000 });
   await page.waitForFunction(
-    (before) => {
-      const rows = document.querySelectorAll("main ul li").length;
-      return rows > 0 && rows <= before;
+    () => {
+      const rows = [...document.querySelectorAll("main ul li")];
+      return rows.length > 0 && rows.every((row) => row.querySelector(".pill-dbg"));
     },
-    allRows,
+    undefined,
     { timeout: 10000 },
-  ).catch(() => {});
+  );
   const debugRows = await page.locator("main ul li").count();
   const nonDebug = await page.locator("main ul li .pill-rev, main ul li .pill-sys").count();
   if (nonDebug > 0) return fail(`bank type filter left ${nonDebug} non-debug rows visible`);
@@ -373,10 +395,10 @@ async function main() {
     log(`\n⚠️  ${errors.length} console/page errors during run:`);
     errors.slice(0, 10).forEach((e) => log("   " + e));
   }
-  log(process.exitCode ? "\n=== E2E FAILED ===" : "\n=== E2E PASSED: full loop works in a real browser ===");
+  log("\n=== E2E PASSED: full loop works in a real browser ===");
 }
 
 main().catch((e) => {
-  console.error("harness crashed:", e);
+  console.error(`\n❌ E2E FAILED: ${e instanceof Error ? e.message : String(e)}`);
   process.exit(1);
 });

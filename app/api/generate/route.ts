@@ -1,8 +1,10 @@
-import { NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { analyzeJd, difficultyFor } from "@/lib/anthropic/jd";
+import { anthropic } from "@/lib/anthropic/client";
 import { generateBodySchema } from "@/lib/validation";
 import { clientKey, dailyLimit, rateLimit } from "@/lib/ratelimit";
+import { isGenerationAdmin } from "@/lib/adminAuth";
 
 export const runtime = "nodejs";
 
@@ -16,11 +18,17 @@ export const runtime = "nodejs";
  * unverified problems in front of a live user, which is the worst possible
  * place to drop a gate (INV-10).
  *
- * So this only enqueues. A worker with python3 drains the queue, and the client
- * watches progress over /api/generate/[id]/stream while already solving
- * something the bank matched. Nothing blocks on generation, ever.
+ * This operator-authenticated route only enqueues. A worker with python3 drains
+ * the queue and progress remains available at /api/generate/[id]/stream.
+ * Public browser traffic cannot spend the platform generation key.
  */
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  if (!isGenerationAdmin(req)) {
+    return NextResponse.json(
+      { error: "Problem generation is operator-only." },
+      { status: 401, headers: { "WWW-Authenticate": "Bearer" } },
+    );
+  }
   if (!rateLimit(clientKey(req)).ok) {
     return NextResponse.json({ error: "Rate limit exceeded — try again shortly." }, { status: 429 });
   }
@@ -47,7 +55,7 @@ export async function POST(req: Request) {
   let resolvedDifficulty = difficulty;
   if (jd) {
     try {
-      const analysis = await analyzeJd(jd, req.signal);
+      const analysis = await analyzeJd(anthropic, jd, req.signal);
       tags = analysis.tags;
       resolvedDifficulty = difficulty ?? difficultyFor(analysis.seniority);
     } catch {

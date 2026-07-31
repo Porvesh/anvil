@@ -1,10 +1,11 @@
-import { NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { toProblem } from "@/lib/problem";
 import { streamSocraticSSE } from "@/lib/anthropic/socratic";
 import { socraticBodySchema } from "@/lib/validation";
 import { clientKey, rateLimit } from "@/lib/ratelimit";
 import type { ChatMessage, Grade } from "@/lib/types";
+import { byokRequiredResponse, userAnthropicFromRequest } from "@/lib/anthropic/byok";
 
 export const runtime = "nodejs";
 
@@ -13,11 +14,13 @@ export const runtime = "nodejs";
  * grade + problem (with answer key) from the persisted attempt so ground truth
  * is never trusted from the client. Persists the running transcript as it goes.
  */
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   const limit = rateLimit(clientKey(req));
   if (!limit.ok) {
     return NextResponse.json({ error: "Rate limit exceeded — try again shortly." }, { status: 429 });
   }
+  const client = userAnthropicFromRequest(req);
+  if (!client) return byokRequiredResponse();
 
   const parsed = socraticBodySchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
@@ -35,7 +38,7 @@ export async function POST(req: Request) {
   const problem = toProblem(problemRow);
   const grade = attempt.grade as unknown as Grade;
 
-  const stream = streamSocraticSSE(problem, grade, history, userMessage, async (reply) => {
+  const stream = streamSocraticSSE(client, problem, grade, history, userMessage, async (reply) => {
     const transcript: ChatMessage[] = [
       ...history,
       ...(userMessage ? [{ role: "user" as const, content: userMessage }] : []),

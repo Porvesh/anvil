@@ -6,6 +6,7 @@ import { getRunner } from "@/lib/pyodide/runner";
 import { getSessionId } from "@/lib/session";
 import { streamSSE } from "@/lib/sseClient";
 import { clearSolveDraft, readSolveDraft, writeSolveDraft } from "@/lib/solveDraft";
+import { notifyByokRequired } from "@/lib/byokClient";
 import { DebugPane } from "./DebugPane";
 import { ReviewPane } from "./ReviewPane";
 import { DesignPane } from "./DesignPane";
@@ -267,6 +268,7 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
       });
       if (!res.ok) {
         const detail = await res.json().catch(() => null);
+        notifyByokRequired(detail?.code);
         throw new Error(detail?.error ?? `Grading failed (${res.status})`);
       }
       const data: { attemptId: string; grade: Grade } = await res.json();

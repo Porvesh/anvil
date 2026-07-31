@@ -5,24 +5,9 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Difficulty, ProblemSummary, ProblemType } from "@/lib/types";
 import { getSessionId } from "@/lib/session";
-import { writePending } from "@/lib/pendingGeneration";
 import { IconShuffle } from "@/lib/icons";
+import { notifyByokRequired } from "@/lib/byokClient";
 import styles from "./Home.module.css";
-
-/**
- * Tag overlap at or above this counts as "the bank already has this", so no
- * generation is started. Mirrors MATCH_THRESHOLD on the server but is a
- * deliberately separate, stricter client decision: the server answers "is this
- * worth serving", this answers "is this close enough that paying to generate
- * would be waste".
- */
-const STRONG_MATCH = 0.6;
-
-/** A short human label for the toast, taken from the JD's first real line. */
-function jdTitle(jd: string): string {
-  const first = jd.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "your role";
-  return first.length > 48 ? `${first.slice(0, 47)}…` : first;
-}
 
 const TYPE_PILL: Record<ProblemType, string> = {
   debug: "pill-dbg",
@@ -64,10 +49,8 @@ const QUALITY_LABEL: Record<ProblemSummary["quality"], string> = {
 };
 
 /**
- * Landing page (spec §6). Ports the v1.html home: hero, JD-tailoring card,
- * "pick up where the bank left off" list, and the three-track grid. Since v1
- * generation is offline, "Generate a problem" selects a matching problem from
- * the seeded bank rather than generating live.
+ * Landing page (spec §6): JD matching, shared-bank picks, and three practice
+ * tracks. User traffic never invokes the operator-funded generation pipeline.
  */
 export function Home({ problems }: { problems: ProblemSummary[] }) {
   const router = useRouter();
@@ -92,27 +75,14 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
 
   const [shuffling, setShuffling] = useState(false);
   const [jd, setJd] = useState(DEFAULT_JD);
-  const [generating, setGenerating] = useState(false);
+  const [matching, setMatching] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
 
   const jdTrimmed = jd.trim();
-  const canGenerate = jdTrimmed.length >= 40;
+  const canMatch = jdTrimmed.length >= 40;
 
-  /**
-   * Match-first: find something in the bank for this JD, and only pay to
-   * generate on a miss.
-   *
-   * The user is routed into a problem within about a second in every branch.
-   * On a good match that's a free bank read; on a miss they get the nearest
-   * bank problem *and* a tailored one starts building in the background
-   * (GenerationWatcher picks it up and follows them across pages). Nothing here
-   * ever waits on a model writing code — the previous version held the button
-   * in a spinner for ~100s, which is a long time to look at a disabled button.
-   *
-   * This is also what makes the bank compound: each tailored problem is tagged
-   * and becomes the free match for the next person with a similar JD.
-   */
-  async function generate() {
+  /** Classify with the user's key, then choose from the verified shared bank. */
+  async function match() {
     setGenError(null);
     if (!jdTrimmed) {
       const pool = type === "any" ? problems : problems.filter((p) => p.type === type);
@@ -121,47 +91,29 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
       return;
     }
 
-    setGenerating(true);
+    setMatching(true);
     try {
       const sessionId = getSessionId();
       const res = await fetch("/api/jd/match", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jd: jdTrimmed, sessionId }),
+        body: JSON.stringify({
+          jd: jdTrimmed,
+          sessionId,
+          type: type === "any" ? undefined : type,
+          difficulty,
+        }),
       });
       const data = await res.json();
+      notifyByokRequired(data?.code);
       if (!res.ok) throw new Error(data?.error ?? `Matching failed (${res.status})`);
 
       const matches: { id: string; type: ProblemType }[] = data.matches ?? [];
       const preferred = type === "any" ? matches : matches.filter((m) => m.type === type);
       const best = preferred[0] ?? matches[0];
 
-      // A weak match still means the bank has nothing close enough, so start a
-      // tailored build — but never make the user wait for it.
-      if (!best || data.confidence < STRONG_MATCH) {
-        void fetch("/api/generate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sessionId,
-            jd: jdTrimmed,
-            type: type === "any" ? undefined : type,
-            difficulty,
-          }),
-        })
-          .then((r) => (r.ok ? r.json() : null))
-          .then((job) => {
-            if (job?.jobId) {
-              writePending({ jobId: job.jobId, label: jdTitle(jdTrimmed), startedAt: Date.now() });
-            }
-          })
-          .catch(() => {
-            // Silent: they're about to be solving something either way.
-          });
-      }
-
-      const fallback =
-        type === "any" ? pick(problems) : (pick(problems.filter((p) => p.type === type)) ?? pick(problems));
+      const typed = type === "any" ? problems : problems.filter((problem) => problem.type === type);
+      const fallback = pick(typed.filter((problem) => problem.difficulty === difficulty)) ?? pick(typed) ?? pick(problems);
       const target = best ?? fallback;
       if (!target) {
         throw new Error("The bank is empty — run the generator to seed it.");
@@ -169,7 +121,7 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
       router.push(`/solve/${target.id}`);
     } catch (err) {
       setGenError(err instanceof Error ? err.message : "Matching failed");
-      setGenerating(false);
+      setMatching(false);
     }
   }
 
@@ -223,18 +175,16 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
                 </button>
               ))}
             </div>
-            <button className={`btn-primary ${styles.cta}`} onClick={generate} disabled={generating}>
-              {generating ? "Finding your problem…" : canGenerate ? "Match me a problem →" : "Pick from the bank →"}
+            <button className={`btn-primary ${styles.cta}`} onClick={match} disabled={matching}>
+              {matching ? "Finding your problem…" : canMatch ? "Match me a problem →" : "Pick from the bank →"}
             </button>
           </div>
-          {!generating && canGenerate && (
+          {!matching && canMatch && (
             <p className={styles.genNote}>
-              Anvil serves the closest problem in the bank straight away. If nothing fits well enough, it also starts
-              building one tailored to this JD in the background — you&rsquo;ll get a link when it&rsquo;s ready, and
-              you can start solving now either way.
+              Your key classifies the role, then Anvil picks the closest verified problem from the shared bank.
             </p>
           )}
-          {!generating && !canGenerate && (
+          {!matching && !canMatch && (
             <p className={styles.genNote}>
               Paste a job description (a few lines is enough) and Anvil will match the stack, domain, and seniority.
               Otherwise this just opens one from the bank.
@@ -349,8 +299,7 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
  * sends the user to the JD box, which is the only thing that fills it.
  */
 function trackGo(count: number, [singular, plural]: [string, string]): string {
-  // Every card lands on that track's slice of the bank, so an empty track must
-  // not promise generation here — the bank's own empty state points at the JD box.
+  // Every card lands on that track's slice of the bank.
   if (count === 0) return "Nothing banked yet →";
   // Both forms are spelled out: these are noun phrases, and suffixing an "s"
   // turns "PR to review" into "PR to reviews".

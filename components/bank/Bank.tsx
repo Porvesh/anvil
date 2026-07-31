@@ -142,7 +142,7 @@ export function Bank({ initial }: { initial: ProblemSummary[] }) {
           <h1 className={styles.h1}>Every problem, verified before it landed</h1>
           <p className={styles.sub}>
             Each one was generated, then executed to prove the flaw is real — the ones that failed that check
-            never made it here. Tailored problems other people generated are in this list too.
+            never made it here. New problems are added through the verified operator pipeline.
           </p>
         </div>
       </header>
@@ -221,10 +221,10 @@ export function Bank({ initial }: { initial: ProblemSummary[] }) {
               >
                 Clear the filters
               </button>{" "}
-              — or paste a job description on the home page and Anvil will build one.
+              — or adjust the job and level filters.
             </>
           ) : (
-            <>The bank is empty. Generate a problem from the home page to start it off.</>
+            <>The bank is empty. Run the operator generator to seed it.</>
           )}
         </div>
       ) : (

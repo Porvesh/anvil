@@ -18,6 +18,7 @@ Browser
   Monaco editor or structured diff
   Pyodide Web Worker
   localStorage: anonymous session + 30-day solve drafts
+  HttpOnly cookie: encrypted 8-hour BYOK session
         |
         | public problem / submission / SSE chat
         v
@@ -27,7 +28,7 @@ Next.js 16 App Router
   grading orchestration
   model request deadlines, retries, cancellation
         |
-        +---------------------> Anthropic API
+        +---------------------> Anthropic API (user key for interactive calls)
         |                       Opus: generation/design/Socratic
         |                       Sonnet: debug/review judges + hints
         |                       Haiku: constrained JD tags
@@ -45,7 +46,9 @@ Prisma
 
 The home page sends a pasted JD to `POST /api/jd/match`. Haiku extracts tags from the fixed vocabulary in `lib/tags.ts`. Existing problems are ranked by tag overlap, difficulty fit, and Wilson score.
 
-The user always enters an existing bank problem immediately. If the match is weak, the browser also calls `POST /api/generate`, receives a `jobId`, and watches `/api/generate/[id]/stream` while the user solves. Generation completion becomes a cross-page notification.
+Interactive model work requires a user-owned Anthropic API key. `POST /api/byok` verifies the key against the Models API, seals it with AES-256-GCM, and returns an eight-hour HttpOnly/SameSite cookie (`Secure` on HTTPS). AI routes decrypt it only for the current request and create an uncached client. There is no fallback to the operator key. The plaintext is never written to Prisma, localStorage, logs, or response bodies.
+
+The user always enters an existing bank problem. Public browser traffic never starts generation: that asynchronous path cannot use a transient user key without persisting it, so `POST /api/generate` requires a separate operator bearer token. Bank expansion happens through explicit operator/CLI workflows rather than unbounded visitor spend.
 
 ### Solving
 
@@ -110,6 +113,7 @@ The checked-in Prisma datasource is SQLite (`file:./dev.db`). `npm run db:postgr
 
 | Route | Purpose |
 |---|---|
+| `GET/POST/DELETE /api/byok` | Inspect, connect, or clear the encrypted key session |
 | `GET /api/problems` | Filtered/ranked public summaries |
 | `GET /api/problems/[id]` | Public solve payload |
 | `GET /api/problems/random` | Random non-retired problem |
@@ -118,7 +122,7 @@ The checked-in Prisma datasource is SQLite (`file:./dev.db`). `npm run db:postgr
 | `POST /api/hint` | Stream solve-time hint without ground truth |
 | `POST /api/socratic` | Stream and persist post-grade follow-up |
 | `POST /api/jd/match` | Extract tags and match the bank |
-| `POST /api/generate` | Enqueue generation and return immediately |
+| `POST /api/generate` | Operator-authenticated generation enqueue |
 | `GET /api/generate/[id]/stream` | Stream job phase changes |
 | `GET /api/history` | Attempts for an anonymous browser session |
 
@@ -151,7 +155,8 @@ Browser abort signals flow through `fetch`, Next request signals, grading, and A
 | Socratic uses persisted ground truth | Client sends only `attemptId` and transcript |
 | Score arithmetic is not model-authored | `lib/grading/index.ts` |
 | Pasted JD is not banked or served | Temporary `GenerationJob.jd`, cleared terminally |
-| API keys stay server-side | Anthropic client imported only by server modules |
+| User API keys stay server-side | AES-GCM HttpOnly cookie; request-scoped client; no platform-key fallback |
+| BYOK mutations resist CSRF | Exact same-origin validation + SameSite=Strict cookie |
 | Untrusted Python stays off the server | Pyodide worker in the browser |
 
 Solve drafts contain user-authored work and conversation text in that browser's `localStorage`; they expire after 30 days and clear after a successful grade. They are not synchronized to the server.
@@ -159,8 +164,8 @@ Solve drafts contain user-authored work and conversation text in that browser's 
 ## 9. Verification
 
 - `npm test`: deterministic unit/integration tests, including isolated DB queue tests.
-- `npm run e2e:smoke`: provider-independent Chromium flow. It intercepts model endpoints but uses real pages, APIs, Monaco, localStorage, and responsive layout. Runs on every push/PR in `.github/workflows/ci.yml`.
-- `npm run e2e`: live Chromium loop through Pyodide, Anthropic grading, Socratic follow-up, curation, navigation, and history. Runs weekly/manual via `.github/workflows/live-e2e.yml`.
+- `npm run e2e:smoke`: provider-independent Chromium flow. It exercises the BYOK UI, intercepts model endpoints, and uses real pages, APIs, Monaco, localStorage, and responsive layout. Runs on every push/PR in `.github/workflows/ci.yml`.
+- `npm run e2e`: live Chromium loop through BYOK connection, Pyodide, Anthropic grading, Socratic follow-up, curation, navigation, and history. Runs weekly/manual via `.github/workflows/live-e2e.yml`.
 - `npm run build`: production Next.js and TypeScript verification.
 
 ## 10. Remaining deployment work
