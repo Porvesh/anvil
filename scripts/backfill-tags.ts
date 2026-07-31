@@ -14,6 +14,7 @@
  *   npm run backfill:tags -- --force     # re-tag everything
  *   npm run backfill:tags -- --dry       # print, don't write
  */
+import "../lib/loadEnv";
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";

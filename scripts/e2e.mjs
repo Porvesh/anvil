@@ -47,6 +47,23 @@ class WebhookBatcher:
         return sent
 `;
 
+/**
+ * Assert the solve payload carries no ground truth. Checked on the wire rather
+ * than in a unit test because this is the exact shape a browser receives, and
+ * the bug it guards (a field surviving an object spread) is invisible to a
+ * type check.
+ */
+async function assertNoGroundTruthLeak(id) {
+  const res = await fetch(`${BASE}/api/problems/${id}`);
+  const raw = await res.text();
+  for (const field of ["answerKey", "answerKeyCount", "jdContext"]) {
+    if (raw.includes(`"${field}"`)) {
+      throw new Error(`LEAK: /api/problems/${id} exposed ${field} to the client`);
+    }
+  }
+  log(`✓ solve payload withholds the answer key, its count, and the JD`);
+}
+
 async function pickProblems() {
   const res = await fetch(`${BASE}/api/problems`);
   const { problems } = await res.json();
@@ -114,6 +131,7 @@ async function main() {
   const heroOk = await page.getByText("Drill the hard part").isVisible();
   log(heroOk ? "✓ home renders" : "✗ home hero missing");
   if (!heroOk) return fail("home did not render");
+  await assertNoGroundTruthLeak(debug.id);
 
   // ---------- DEBUG SOLVE ----------
   await page.goto(`${BASE}/solve/${debug.id}`, { waitUntil: "networkidle" });
@@ -151,7 +169,7 @@ async function main() {
   if (failAfter > 0) return fail("fixed code still has failing tests in-browser");
 
   // Submit → grade → results
-  log("… submitting for grade (live Haiku call)");
+  log("… submitting for grade (live judge call)");
   await page.getByRole("button", { name: /Submit for review/i }).click();
   await page.waitForSelector("text=%", { timeout: 60000 });
   const score = await page.locator("text=/^\\d+$/").first().textContent().catch(() => "?");

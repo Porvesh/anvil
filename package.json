@@ -8,12 +8,13 @@
     "start": "next start",
     "seed": "tsx prisma/seed.ts",
     "db:migrate": "prisma migrate dev",
-    "generate:bank": "node --env-file=.env --import tsx scripts/generate-bank.ts",
+    "generate:bank": "tsx scripts/generate-bank.ts",
     "test": "vitest run",
     "e2e": "node scripts/e2e.mjs",
-    "regrade": "node --env-file=.env --import tsx scripts/regrade.ts",
-    "backfill:tags": "node --env-file=.env --import tsx scripts/backfill-tags.ts",
-    "worker": "node --env-file=.env --import tsx worker/index.ts"
+    "regrade": "tsx scripts/regrade.ts",
+    "backfill:tags": "tsx scripts/backfill-tags.ts",
+    "worker": "tsx worker/index.ts",
+    "purge:jds": "tsx scripts/purge-jds.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

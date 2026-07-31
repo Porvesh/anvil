@@ -19,6 +19,7 @@
  * measured cost-per-banked-problem at the end so the next one can be estimated
  * rather than guessed.
  */
+import "../lib/loadEnv";
 import { readFileSync } from "node:fs";
 import { PrismaClient } from "@prisma/client";
 import type { Difficulty, ProblemType } from "../lib/types";
