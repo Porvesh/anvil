@@ -9,6 +9,14 @@ import styles from "./Results.module.css";
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 44; // r=44
 
+/** Ring color follows the same three bands as History, so a 72 always reads the
+ *  same shade everywhere a score appears. */
+function ringColor(score: number): string {
+  if (score >= 75) return "var(--green)";
+  if (score >= 50) return "var(--amber)";
+  return "var(--red)";
+}
+
 const SEV_CLASS: Record<Severity, string> = {
   critical: styles.sevCritical,
   major: styles.sevMajor,
@@ -73,7 +81,7 @@ export function Results({
                 cx="50"
                 cy="50"
                 r="44"
-                stroke="var(--spark)"
+                stroke={ringColor(grade.score)}
                 strokeWidth="7"
                 fill="none"
                 strokeLinecap="round"
@@ -81,7 +89,7 @@ export function Results({
                 strokeDashoffset={offset}
               />
             </svg>
-            <div className={styles.val}>
+            <div className={styles.val} style={{ color: ringColor(grade.score) }}>
               {grade.score}
               <small>%</small>
             </div>
@@ -126,7 +134,7 @@ export function Results({
 
           <div className={styles.rcard}>
             <h3>{missed.length === 1 ? "What you missed" : missed.length === 0 ? "Missed" : "What you missed"}</h3>
-            {missed.length === 0 && <div className={styles.empty}>You caught everything that was seeded. 🔨</div>}
+            {missed.length === 0 && <div className={styles.empty}>You caught everything that was seeded — clean sweep.</div>}
             {missed.map((o) => (
               <div key={o.issueId} className={`${styles.issue} ${styles.miss}`}>
                 <span className={styles.m}>MISSED</span>

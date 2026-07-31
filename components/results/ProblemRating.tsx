@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { getSessionId } from "@/lib/session";
+import { IconFlag, IconThumbsDown, IconThumbsUp } from "@/lib/icons";
 import styles from "./ProblemRating.module.css";
 
 /**
@@ -46,15 +47,27 @@ export function ProblemRating({ problemId }: { problemId: string }) {
       </div>
       <div className={styles.buttons}>
         {retired ? (
-          <span className={styles.retired}>⚑ retired from the bank — thanks for the signal</span>
+          <span className={styles.retired}>
+            <IconFlag /> retired from the bank — thanks for the signal
+          </span>
         ) : your !== 0 ? (
           <span className={styles.thanks}>✓ rated — thanks</span>
         ) : null}
-        <button className={`${styles.vote} ${styles.up} ${your === 1 ? styles.on : ""}`} onClick={() => vote(1)} disabled={busy}>
-          👍 <span className={styles.count}>{counts ? counts.up : ""}</span>
+        <button
+          className={`${styles.vote} ${styles.up} ${your === 1 ? styles.on : ""}`}
+          onClick={() => vote(1)}
+          disabled={busy}
+          aria-label="Good problem"
+        >
+          <IconThumbsUp /> <span className={styles.count}>{counts ? counts.up : ""}</span>
         </button>
-        <button className={`${styles.vote} ${styles.down} ${your === -1 ? styles.on : ""}`} onClick={() => vote(-1)} disabled={busy}>
-          👎 <span className={styles.count}>{counts ? counts.down : ""}</span>
+        <button
+          className={`${styles.vote} ${styles.down} ${your === -1 ? styles.on : ""}`}
+          onClick={() => vote(-1)}
+          disabled={busy}
+          aria-label="Weak problem"
+        >
+          <IconThumbsDown /> <span className={styles.count}>{counts ? counts.down : ""}</span>
         </button>
       </div>
     </div>

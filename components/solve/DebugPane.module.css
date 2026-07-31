@@ -12,11 +12,16 @@
   border-bottom: 1px solid var(--edge-soft);
   background: var(--slab);
 }
+/* Tabs take the leftover width and scroll rather than being clipped at a fixed
+   share of the bar — a hard cap chopped real paths ("fulfilment/invent…") mid-
+   word even when there was room to spare. min-width:0 is what lets a flex item
+   shrink below its content and actually scroll. */
 .tabs {
   display: flex;
   gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
   overflow-x: auto;
-  max-width: 52%;
   scrollbar-width: thin;
 }
 .filetab {
@@ -45,11 +50,22 @@
 .filedir {
   color: var(--steel-dim);
 }
+/* The package prefix shared by every tab, shown once outside the scrolling
+   strip so it stays put while the tabs move. */
+.pkg {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--steel-dim);
+  padding-right: 2px;
+}
 .lock {
-  font-size: 9px;
-  opacity: 0.7;
+  display: inline-flex;
+  align-items: center;
+  opacity: 0.65;
 }
 .engine {
+  flex: none;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -80,6 +96,7 @@
   flex: 1;
 }
 .kbd {
+  flex: none;
   font-family: var(--mono);
   font-size: 10.5px;
   color: var(--steel-dim);
@@ -90,6 +107,7 @@
   margin-right: 2px;
 }
 .run {
+  flex: none;
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -127,6 +145,13 @@
   height: 220px;
   display: flex;
   flex-direction: column;
+  transition: height 0.18s ease;
+}
+/* Before the first run this panel holds two words of instruction, so reserving
+   the full results height just steals rows from the editor — the one thing the
+   user is actually working in. It grows on the first result. */
+.runpanelIdle {
+  height: 124px;
 }
 .runtabs {
   display: flex;

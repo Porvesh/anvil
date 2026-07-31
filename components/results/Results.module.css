@@ -162,10 +162,12 @@
 .testsPass {
   color: var(--green);
   border: 1px solid rgba(87, 199, 138, 0.4);
+  background: rgba(87, 199, 138, 0.07);
 }
 .testsFail {
   color: var(--red);
   border: 1px solid rgba(229, 97, 94, 0.4);
+  background: rgba(229, 97, 94, 0.07);
 }
 .formula {
   background: var(--slab);

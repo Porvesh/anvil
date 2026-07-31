@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { RunRecord, RunResult, SolutionFile } from "@/lib/types";
 import { getRunner } from "@/lib/pyodide/runner";
+import { IconLock } from "@/lib/icons";
 import styles from "./DebugPane.module.css";
 
 // Monaco loads client-side only (it pulls its worker assets in the browser).
@@ -50,6 +51,22 @@ function splitPath(path: string): { dir: string; name: string } {
 }
 
 /**
+ * The directory every file shares, or "" when they differ.
+ *
+ * A generated problem is a Python package, so every path repeats the same
+ * `pkg/` prefix — four copies of it in one tab strip pushed the actual
+ * filenames past the right edge. When the prefix is common to all files it
+ * carries no information per-tab, so it is hoisted out and shown once.
+ */
+function sharedDir(files: SolutionFile[]): string {
+  const first = files[0];
+  if (!first) return "";
+  const { dir } = splitPath(first.path);
+  if (!dir) return "";
+  return files.every((f) => splitPath(f.path).dir === dir) ? dir : "";
+}
+
+/**
  * Debug work surface (spec §6): a multi-file project (file tabs + Monaco) + Run
  * + a tests/console panel. Editor-centric. Real problems span a package, so the
  * user navigates files; read-only files (fixtures/neighbours) are marked. Owns
@@ -92,10 +109,16 @@ export function DebugPane({
   }, []);
 
   const active = files.find((f) => f.path === activePath) ?? files[0];
+  const pkg = sharedDir(files);
 
   return (
     <div className={styles.pane}>
       <div className={styles.edtop}>
+        {pkg && (
+          <span className={styles.pkg} title={`Every file lives in ${pkg}`}>
+            {pkg}
+          </span>
+        )}
         <div className={styles.tabs}>
           {files.map((f) => {
             const { dir, name } = splitPath(f.path);
@@ -106,9 +129,13 @@ export function DebugPane({
                 onClick={() => onSelectFile(f.path)}
                 title={f.path + (f.readOnly ? " (read-only)" : "")}
               >
-                {dir && <span className={styles.filedir}>{dir}</span>}
+                {!pkg && dir && <span className={styles.filedir}>{dir}</span>}
                 {name}
-                {f.readOnly && <span className={styles.lock}>🔒</span>}
+                {f.readOnly && (
+                  <span className={styles.lock} title="Read-only — the bug isn't in this file">
+                    <IconLock />
+                  </span>
+                )}
               </button>
             );
           })}
@@ -156,7 +183,7 @@ export function DebugPane({
         />
       </div>
 
-      <div className={styles.runpanel}>
+      <div className={`${styles.runpanel} ${!result && !running ? styles.runpanelIdle : ""}`}>
         <div className={styles.runtabs}>
           <button className={tab === "tests" ? styles.on : ""} onClick={() => setTab("tests")}>
             Tests
