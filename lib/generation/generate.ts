@@ -43,15 +43,28 @@ async function streamStructured<T extends z.ZodTypeAny>(
   system: string,
   user: string,
   model?: string,
+  site: "generation" | "generationDesign" | "generationReview" = "generation",
 ): Promise<z.infer<T>> {
-  const { output_config, ...params } = callParams("generation", { model });
+  const { output_config, ...params } = callParams(site, { model });
   const stream = anthropic.messages.stream({
     ...params,
     output_config: { ...output_config, format: zodOutputFormat(schema) },
     system,
     messages: [{ role: "user", content: user }],
   });
-  const msg = await stream.finalMessage();
+  let msg: Awaited<ReturnType<typeof stream.finalMessage>>;
+  try {
+    msg = await stream.finalMessage();
+  } catch (err) {
+    // The SDK validates structured output inside finalMessage, so a response
+    // truncated by max_tokens surfaces here as "unterminated string" rather
+    // than as a length problem. Relabel that one case; everything else
+    // rethrows unchanged so typed SDK errors (rate limit, connection) keep
+    // their class and stack.
+    const detail = err instanceof Error ? err.message : String(err);
+    if (!/json|parse|unterminated/i.test(detail)) throw err;
+    throw new Error(`generation output was truncated or malformed (likely max_tokens) — retrying: ${detail}`, { cause: err });
+  }
   // This product asks the model to write deliberately vulnerable code, so a
   // refusal is an expected outcome on a strong model, not an exceptional one.
   // It arrives as a normal 200 with empty content — reading content[0] without
@@ -176,10 +189,10 @@ const GeneratedDesignSchema = z.object({
   // require them to land far apart. A rubric that rates both alike can't grade.
   strongAnswer: z
     .string()
-    .describe("a genuinely senior design doc for this brief: capacity math, named trade-offs argued both ways, failure modes reasoned through"),
+    .describe("a genuinely senior design doc for this brief, 350-550 words: capacity math, named trade-offs argued both ways, failure modes reasoned through. Concise — it exists to test the rubric, not to be published"),
   weakAnswer: z
     .string()
-    .describe("a plausible but shallow answer: correct-sounding vocabulary, no numbers, trade-offs named but never argued, no failure analysis. NOT obviously bad — it should read fine to a non-expert"),
+    .describe("a plausible but shallow answer, 350-550 words: correct-sounding vocabulary, no numbers, trade-offs named but never argued, no failure analysis. NOT obviously bad — it should read fine to a non-expert"),
 });
 export type GeneratedDesign = z.infer<typeof GeneratedDesignSchema>;
 
@@ -202,14 +215,26 @@ export async function generateDesign(difficulty: Difficulty, topic?: string, jd?
   ]
     .filter(Boolean)
     .join("\n");
-  return streamStructured(GeneratedDesignSchema, system, user, model);
+  return streamStructured(GeneratedDesignSchema, system, user, model, "generationDesign");
 }
 
 // --- Review ---
 
 const GeneratedReviewSchema = z.object({
-  title: z.string().describe("the PR title"),
-  prompt: z.string().describe("the PR description — plausible, subtly misleading, hides the flaws"),
+  title: z.string().describe("the PR title, as an engineer in a hurry would write it"),
+  prompt: z
+    .string()
+    .describe(
+      [
+        "The PR description, 180-320 words, as written by an AI coding agent that is pleased with itself.",
+        "Markdown: a '## Summary' paragraph, a '## Changes' bullet list walking file by file, and a",
+        "'## Testing' section. Confident and thorough-sounding, and subtly misleading — it should claim",
+        "the risky parts are handled ('added retry with backoff', 'defensive validation throughout',",
+        "'verified locally against the staging queue'), name a concern it did NOT actually address, and",
+        "never hint at where the real defects are. This is the thing that makes the exercise hard: the",
+        "reviewer has to distrust a description that reads perfectly.",
+      ].join(" "),
+    ),
   prMeta: z.object({
     number: z.number(),
     branch: z.string(),
@@ -231,7 +256,9 @@ const GeneratedReviewSchema = z.object({
         ),
       }),
     )
-    .describe("unified-diff hunks; answer-key lines reference the new-file lineNo"),
+    .describe(
+      "One entry per changed file, 3-5 files, in the order a reviewer would read them. Each file carries 40-90 diff lines: generous context around every change, not just the changed lines. Answer-key lines reference the new-file lineNo. Total across files should read like a real feature PR (roughly 150-320 added lines), because a reviewer's job is finding the defect in volume — a 6-line diff tests nothing.",
+    ),
   answerKey: answerKeyField,
   tags: tagsField,
 
@@ -254,11 +281,44 @@ export type GeneratedReview = z.infer<typeof GeneratedReviewSchema>;
 
 export async function generateReview(difficulty: Difficulty, topic?: string, jd?: string, model?: string): Promise<GeneratedReview> {
   const system = [
-    "You author code-review exercises: a plausible AI-generated PR (git diff) hiding planted flaws.",
+    "You author code-review exercises: a large, plausible AI-generated PR (git diff) hiding planted flaws.",
     "The PR description should sound reasonable — the skill being trained is catching bugs in convincing AI slop.",
-    "Make it realistic: the PR should touch 1-2 files (a real change often spans more than one), with proper context lines.",
+    "",
+    "DOMAIN — pick something specific, and not the obvious one. Unless a topic or job description below says",
+    "otherwise, do NOT write another payments/webhook/idempotency PR: that is where these problems drift by",
+    "default and a bank full of them teaches one pattern. Reach for a different corner of a backend instead —",
+    "job scheduling and cron drift, search indexing, CSV/bulk import, notification fan-out, feature-flag",
+    "rollout, cache invalidation, pagination over a changing dataset, quota accounting, audit logging, file",
+    "processing, seat/licence assignment, data export. Let the title read like that domain's PR, not a",
+    "generic one.",
+    "",
+    "SIZE AND SHAPE — this is a feature PR, not a patch:",
+    "- Touch 3-5 files the way a real change does: the module doing the work, a caller or route wired up to it,",
+    "  a small helper or config, and a test file the author added. Order them as a reviewer would read them.",
+    "- Every file gets generous context lines around its changes, so the reviewer is reading code in situ",
+    "  rather than a keyhole view. Aim for 150-320 added lines across the PR.",
+    "- Spread the changes: a reviewer who only reads the first hunk should miss something.",
+    "",
+    "AI SLOP — the noise the defects hide in. This is what makes the exercise real, so be generous with it:",
+    "- Ceremony that does nothing: a class wrapping a single function, a config dict read once, an abstraction",
+    "  with exactly one implementation, a helper that re-implements something stdlib already does.",
+    "- Over-defensive code in the wrong places: None-checks on values that cannot be None, try/except around",
+    "  code that cannot raise, re-validating an argument the caller already validated — while the input that",
+    "  actually needs checking goes unchecked.",
+    "- Comments and docstrings that narrate the obvious ('# increment the counter'), restate the signature,",
+    "  or confidently describe behaviour the code does not have.",
+    "- Plausible-but-pointless robustness: a retry around a pure function, a lock around a local variable,",
+    "  a cache with no invalidation, logging so chatty it would bury a real signal in production.",
+    "- Small inconsistencies a tired human wouldn't produce: two naming conventions in one file, a helper",
+    "  defined twice under different names, an unused import or parameter left behind.",
+    "",
+    "CRITICAL — slop is NOT the graded flaws. The answer key contains only the 1-3 real defects: things that",
+    "produce wrong behaviour, and that the test suite proves by failing. The slop is unreviewed noise that a",
+    "sharp reviewer may well comment on (that is judged separately as a valid extra observation, not a miss).",
+    "Never put a style nit or a redundant None-check in the answer key.",
+    "",
     "Constraints: pure Python only (it is executed to verify the flaws — stdlib only, no network, no filesystem).",
-    `Plant 1-3 realistic flaws: ${FLAW_MENU}.`,
+    `Plant 1-3 realistic flaws, buried in the middle of the churn rather than in the first hunk: ${FLAW_MENU}.`,
     "Use context/add/del diff lines. Every add/context line has a new-file lineNo; del lines have lineNo null.",
     "In the answer key, set `file` to the diff file path and lineStart/lineEnd to the new-file lineNo where the flaw lives.",
     "",
@@ -277,5 +337,5 @@ export async function generateReview(difficulty: Difficulty, topic?: string, jd?
   ]
     .filter(Boolean)
     .join("\n");
-  return streamStructured(GeneratedReviewSchema, system, user, model);
+  return streamStructured(GeneratedReviewSchema, system, user, model, "generationReview");
 }
