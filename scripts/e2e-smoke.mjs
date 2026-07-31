@@ -121,7 +121,7 @@ async function main() {
   // The global BYOK control connects without retaining the plaintext in browser storage.
   await page.goto(BASE, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "Connect an AI provider key" }).click();
-  await page.getByText("How your key is protected").waitFor();
+  await page.getByText("How your key is protected").click();
   await page.getByText(/Never written to Anvil/).waitFor();
   await page.getByRole("button", { name: "OpenAI" }).click();
   await page.getByLabel("OpenAI API key").fill("sk-proj-deterministic-smoke-key");

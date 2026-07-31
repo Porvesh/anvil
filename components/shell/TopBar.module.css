@@ -239,11 +239,24 @@
   display: flex;
   align-items: center;
   gap: 7px;
+  cursor: pointer;
   color: var(--parchment-dim);
   font-size: 12px;
+  list-style-position: outside;
+}
+.securityTitle:hover {
+  color: var(--parchment);
 }
 .securityTitle svg {
   color: var(--green);
+}
+.securityTitle .securityChevron {
+  margin-left: auto;
+  color: var(--steel);
+  transition: transform 150ms ease;
+}
+.securityPanel[open] .securityChevron {
+  transform: rotate(180deg);
 }
 .securityPanel ul {
   display: grid;

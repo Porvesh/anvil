@@ -49,6 +49,15 @@ export function IconLock({ size = 12, ...props }: IconProps) {
   );
 }
 
+/** Disclosure and dropdown indicator. */
+export function IconChevronDown({ size = 14, ...props }: IconProps) {
+  return (
+    <svg {...base(size, props)}>
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+
 /** Dictate a question (speech-to-text). */
 export function IconMic({ size = 16, ...props }: IconProps) {
   return (
