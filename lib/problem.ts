@@ -75,6 +75,27 @@ export function toPublicProblem(row: PrismaProblem): PublicProblem {
 }
 
 /** Compact bank-list row, including the curation signals the bank UI renders. */
+/**
+ * Size of the code the user will face, by mode.
+ *
+ * Review is measured in added diff lines because that is what a reviewer reads;
+ * debug in total project lines, since the whole package is on screen. Design has
+ * no code, so it has no scale rather than a misleading zero.
+ */
+function scaleOf(row: PrismaProblem): ProblemSummary["scale"] {
+  if (row.type === "review") {
+    const diff = json<DiffHunk[]>(row.diff) ?? [];
+    const added = diff.reduce((n, hunk) => n + hunk.lines.filter((l) => l.kind === "add").length, 0);
+    return diff.length ? { files: diff.length, lines: added } : null;
+  }
+  if (row.type === "debug") {
+    const files = json<SolutionFile[]>(row.files) ?? [];
+    const lines = files.reduce((n, f) => n + f.content.split("\n").length, 0);
+    return files.length ? { files: files.length, lines } : null;
+  }
+  return null;
+}
+
 export function toSummary(row: PrismaProblem): ProblemSummary {
   return {
     id: row.id,
@@ -85,5 +106,7 @@ export function toSummary(row: PrismaProblem): ProblemSummary {
     downvotes: row.downvotes,
     timesAttempted: row.timesAttempted,
     quality: qualityLabel(row.upvotes, row.downvotes).tone,
+    tags: parseTags(row.tags),
+    scale: scaleOf(row),
   };
 }

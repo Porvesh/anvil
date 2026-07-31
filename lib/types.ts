@@ -174,6 +174,21 @@ export interface ProblemSummary {
   timesAttempted: number;
   /** Human quality label derived from votes (see lib/curation.ts). */
   quality: "good" | "mixed" | "new";
+  /**
+   * Topic tags. Safe to expose (unlike `jdContext`, which they replace for
+   * matching purposes) and what makes the bank page browsable by concern
+   * rather than only by type.
+   */
+  tags: Tag[];
+  /**
+   * How much code the problem puts in front of you — the bank list's only cue
+   * that one review is a five-file feature PR and another is a six-line patch.
+   * Null for design, which is a written brief with no code to size.
+   *
+   * Counts only, never content: a summary is served to anyone browsing, so this
+   * must not become a way to read the diff without opening the problem.
+   */
+  scale: { files: number; lines: number } | null;
 }
 
 // ---------------------------------------------------------------------------
