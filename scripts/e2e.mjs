@@ -85,7 +85,9 @@ async function pickProblems() {
   // because it applies a known fix to it, but the review leg is problem-agnostic,
   // and naming a favourite here meant retiring that problem broke the suite.
   const review = problems.find((p) => p.type === "review");
-  const design = problems.find((p) => p.type === "design");
+  // The design leg injects a rate-limiter answer, so it needs the corresponding
+  // rubric rather than whichever design problem was most recently banked.
+  const design = problems.find((p) => p.title.includes("distributed rate limiter")) || problems.find((p) => p.type === "design");
   return { debug, review, design };
 }
 
