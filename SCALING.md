@@ -21,11 +21,11 @@ The web tier stores no live editor state and needs no session affinity. A candid
 ```text
 load problem      -> one DB read, hidden fields stripped
 run tests         -> browser only
-ask for hint      -> one Sonnet stream (optional)
-submit debug      -> one Sonnet judgment + transaction
-submit review     -> deterministic matcher + one Sonnet judgment + transaction
-submit design     -> two Opus judgments + transaction
-follow-up turn    -> one Opus stream (optional)
+ask for hint      -> one efficient-tier provider stream (optional)
+submit debug      -> one balanced-tier judgment + transaction
+submit review     -> deterministic matcher + one balanced-tier judgment + transaction
+submit design     -> two strongest-tier judgments + transaction
+follow-up turn    -> one strongest-tier stream (optional)
 vote              -> one transactional upsert/tally update
 ```
 
@@ -50,7 +50,7 @@ The domain schema is portable by design, but the operational migration has not b
 
 ### 3. Model cost and capacity
 
-Interactive model calls are charged to each user's Anthropic Console account. The operator key is restricted to queued problem generation, maintenance scripts, and live CI. Existing controls:
+Interactive model calls are charged to each user's selected Anthropic or OpenAI API account. The operator Anthropic key is restricted to queued problem generation, maintenance scripts, and live CI. Existing controls:
 
 - Stable problem/key prefixes use prompt-cache breakpoints.
 - Every call site has a deadline and explicit SDK retry budget.
@@ -59,6 +59,7 @@ Interactive model calls are charged to each user's Anthropic Console account. Th
 - JD matching serves existing tagged problems; generation remains a separate operator action.
 - Cancellation propagates to the provider for chat and grading.
 - User credentials expire after eight hours and never fall back to the operator key.
+- OpenAI Responses API calls disable provider-side response storage with `store: false`.
 - Public routes cannot enqueue operator-funded generation.
 
 At higher traffic, record per-call-site tokens, cache reads, latency, status, and retry count. Add grading backpressure before organization TPM limits become user-visible.
@@ -100,6 +101,6 @@ Generation jobs already live outside requests and support atomic claims, stale-c
 - [ ] `ANTHROPIC_API_KEY` configured only for the worker/maintenance environment
 - [ ] `GENERATION_ADMIN_TOKEN` configured if the enqueue API is deployed
 - [ ] Worker deployed with `python3` and graceful shutdown
-- [ ] Weekly live E2E secret configured
+- [ ] Weekly live E2E secret configured (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`)
 - [ ] Structured provider/worker metrics and alerts installed
 - [ ] Cursor pagination and stored rank added before large bank growth

@@ -21,10 +21,26 @@ const NAV = [
   { href: "/history", label: "History" },
 ];
 
+type AiProvider = "anthropic" | "openai";
+
+const PROVIDERS: Record<AiProvider, { label: string; placeholder: string; keyUrl: string }> = {
+  anthropic: {
+    label: "Anthropic",
+    placeholder: "sk-ant-...",
+    keyUrl: "https://console.anthropic.com/settings/keys",
+  },
+  openai: {
+    label: "OpenAI",
+    placeholder: "sk-...",
+    keyUrl: "https://platform.openai.com/api-keys",
+  },
+};
+
 /** Constant app chrome (spec §6). Present on every view. */
 export function TopBar() {
   const pathname = usePathname();
   const [connected, setConnected] = useState<boolean | null>(null);
+  const [provider, setProvider] = useState<AiProvider>("anthropic");
   const [open, setOpen] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [showKey, setShowKey] = useState(false);
@@ -43,7 +59,10 @@ export function TopBar() {
   useEffect(() => {
     void fetch("/api/byok", { cache: "no-store" })
       .then((response) => response.json())
-      .then((status) => setConnected(Boolean(status.connected)))
+      .then((status) => {
+        setConnected(Boolean(status.connected));
+        if (status.provider === "anthropic" || status.provider === "openai") setProvider(status.provider);
+      })
       .catch(() => setConnected(false));
   }, []);
 
@@ -78,7 +97,7 @@ export function TopBar() {
       const response = await fetch("/api/byok", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKey }),
+        body: JSON.stringify({ provider, apiKey }),
       });
       const data = await response.json().catch(() => null);
       if (!response.ok) throw new Error(data?.error ?? "Could not connect this key.");
@@ -135,7 +154,7 @@ export function TopBar() {
           setError(null);
           setOpen(true);
         }}
-        aria-label={connected ? "Anthropic API key connected" : "Connect Anthropic API key"}
+        aria-label={connected ? `${PROVIDERS[provider].label} API key connected` : "Connect an AI provider key"}
       >
         <IconKey />
         <span className={styles.keyLabel}>{connected ? "Key connected" : "Connect key"}</span>
@@ -151,7 +170,7 @@ export function TopBar() {
             <div className={styles.dialogHead}>
               <div className={styles.keyMark}><IconKey size={18} /></div>
               <div>
-                <h2 id="byok-title">Anthropic API key</h2>
+                <h2 id="byok-title">Connect an AI provider</h2>
                 <p>{connected ? "This browser is ready for AI grading." : "Use your own API billing for AI features."}</p>
               </div>
               <button className={styles.close} onClick={closeDialog} disabled={busy} aria-label="Close">×</button>
@@ -160,18 +179,36 @@ export function TopBar() {
             {connected ? (
               <div className={styles.connectedPanel}>
                 <span className={styles.connectedDot} />
-                <div><strong>Connected</strong><span>Session expires automatically after 8 hours.</span></div>
+                <div><strong>{PROVIDERS[provider].label} connected</strong><span>Session expires automatically after 8 hours.</span></div>
               </div>
             ) : (
               <form onSubmit={connect}>
-                <label htmlFor="anthropic-key">API key</label>
+                <div className={styles.providerPicker} role="group" aria-label="AI provider">
+                  {(Object.keys(PROVIDERS) as AiProvider[]).map((id) => (
+                    <button
+                      key={id}
+                      type="button"
+                      className={provider === id ? styles.providerActive : ""}
+                      aria-pressed={provider === id}
+                      onClick={() => {
+                        setProvider(id);
+                        setApiKey("");
+                        setError(null);
+                      }}
+                      disabled={busy}
+                    >
+                      {PROVIDERS[id].label}
+                    </button>
+                  ))}
+                </div>
+                <label htmlFor="provider-key">{PROVIDERS[provider].label} API key</label>
                 <input
                   ref={inputRef}
-                  id="anthropic-key"
+                  id="provider-key"
                   type={showKey ? "text" : "password"}
                   value={apiKey}
                   onChange={(event) => setApiKey(event.target.value)}
-                  placeholder="sk-ant-..."
+                  placeholder={PROVIDERS[provider].placeholder}
                   autoComplete="off"
                   spellCheck={false}
                   disabled={busy}
@@ -193,7 +230,7 @@ export function TopBar() {
               {connected ? (
                 <button onClick={disconnect} disabled={busy}>{busy ? "Removing…" : "Remove key"}</button>
               ) : (
-                <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">Create a key ↗</a>
+                <a href={PROVIDERS[provider].keyUrl} target="_blank" rel="noreferrer">Create a key ↗</a>
               )}
             </div>
           </section>

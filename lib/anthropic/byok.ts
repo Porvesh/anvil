@@ -1,14 +1,14 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import Anthropic from "@anthropic-ai/sdk";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { createAnthropicClient } from "./clientFactory";
+import { createUserModelClient, type AiProvider, type ModelClient } from "../ai/client";
 
 export const BYOK_COOKIE = "anvil_byok";
 export const BYOK_MAX_AGE_SECONDS = 8 * 60 * 60;
-const VERSION = "v1";
+const VERSION = "v2";
 
 interface ByokPayload {
+  provider: AiProvider;
   apiKey: string;
   expiresAt: number;
 }
@@ -30,12 +30,16 @@ function decode(value: string): Buffer {
 }
 
 /** Seal a key into authenticated ciphertext suitable for an HttpOnly cookie. */
-export function sealApiKey(apiKey: string, now = Date.now()): { value: string; expiresAt: number } {
+export function sealApiKey(
+  provider: AiProvider,
+  apiKey: string,
+  now = Date.now(),
+): { value: string; expiresAt: number } {
   const expiresAt = now + BYOK_MAX_AGE_SECONDS * 1000;
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", encryptionKey(), iv);
   cipher.setAAD(Buffer.from(VERSION));
-  const plaintext = Buffer.from(JSON.stringify({ apiKey, expiresAt } satisfies ByokPayload), "utf8");
+  const plaintext = Buffer.from(JSON.stringify({ provider, apiKey, expiresAt } satisfies ByokPayload), "utf8");
   const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
   return {
     value: [VERSION, encode(iv), encode(ciphertext), encode(cipher.getAuthTag())].join("."),
@@ -55,6 +59,7 @@ export function unsealApiKey(value: string, now = Date.now()): ByokPayload | nul
     const payload = JSON.parse(plaintext) as Partial<ByokPayload>;
     if (
       typeof payload.apiKey !== "string" ||
+      (payload.provider !== "anthropic" && payload.provider !== "openai") ||
       typeof payload.expiresAt !== "number" ||
       payload.expiresAt <= now ||
       payload.expiresAt > now + BYOK_MAX_AGE_SECONDS * 1000 + 60_000
@@ -73,14 +78,14 @@ export function readByokSession(req: NextRequest): ByokPayload | null {
 }
 
 /** User-facing model routes must call this; there is deliberately no platform-key fallback. */
-export function userAnthropicFromRequest(req: NextRequest): Anthropic | null {
+export function userModelFromRequest(req: NextRequest): ModelClient | null {
   const session = readByokSession(req);
-  return session ? createAnthropicClient(session.apiKey) : null;
+  return session ? createUserModelClient(session.provider, session.apiKey) : null;
 }
 
 export function byokRequiredResponse(): NextResponse {
   return NextResponse.json(
-    { error: "Connect your Anthropic API key to use AI features.", code: "byok_required", retryable: false },
+    { error: "Connect an Anthropic or OpenAI API key to use AI features.", code: "byok_required", retryable: false },
     { status: 401, headers: { "Cache-Control": "no-store" } },
   );
 }
@@ -99,12 +104,4 @@ export function isSameOrigin(req: Request): boolean {
 export function secureCookieFor(req: Request): boolean {
   const forwardedProto = req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
   return forwardedProto ? forwardedProto === "https" : new URL(req.url).protocol === "https:";
-}
-
-/** Validate ownership without consuming model tokens. */
-export async function validateAnthropicKey(apiKey: string, signal?: AbortSignal): Promise<void> {
-  await createAnthropicClient(apiKey).models.list(
-    { limit: 1 },
-    { timeout: 10_000, maxRetries: 0, signal },
-  );
 }

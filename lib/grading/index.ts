@@ -15,8 +15,7 @@ import type {
   SolutionFile,
   Submission,
 } from "../types";
-import type Anthropic from "@anthropic-ai/sdk";
-import { CALLS } from "../anthropic/models";
+import { modelFor, type ModelClient } from "../ai/client";
 import { matchReviewComments } from "./matcher";
 import { judgeDebug, judgeDesign, judgeReview } from "../anthropic/grade";
 
@@ -48,7 +47,7 @@ export class SubmissionModeError extends Error {
  * rather than the grading change it was meant to evaluate.
  */
 export async function gradeSubmission(
-  client: Anthropic,
+  client: ModelClient,
   problem: Problem,
   submission: Submission,
   signal?: AbortSignal,
@@ -74,7 +73,7 @@ export async function gradeSubmission(
 const FALSE_POSITIVE_PENALTY = 12;
 
 export async function gradeReview(
-  client: Anthropic,
+  client: ModelClient,
   problem: Problem,
   comments: ReviewComment[],
   signal?: AbortSignal,
@@ -176,7 +175,7 @@ export async function gradeReview(
     outcomes,
     falsePositives,
     breakdown,
-    graderModel: CALLS.judgeReview.model,
+    graderModel: modelFor(client, "judgeReview"),
   };
 }
 
@@ -211,7 +210,7 @@ const DIVERGENCE_THRESHOLD = 15;
  * about the *problem*, and belongs with the curation data rather than in front
  * of the user.
  */
-export async function gradeDesign(client: Anthropic, problem: Problem, doc: string, signal?: AbortSignal): Promise<Grade> {
+export async function gradeDesign(client: ModelClient, problem: Problem, doc: string, signal?: AbortSignal): Promise<Grade> {
   const [first, second] = await Promise.all([judgeDesign(client, problem, doc, signal), judgeDesign(client, problem, doc, signal)]);
 
   const total = problem.answerKey.length || 1;
@@ -275,7 +274,7 @@ export async function gradeDesign(client: Anthropic, problem: Problem, doc: stri
     outcomes,
     falsePositives: [],
     breakdown,
-    graderModel: CALLS.judgeDesign.model,
+    graderModel: modelFor(client, "judgeDesign"),
     judgeDivergence,
     rubricAmbiguous: judgeDivergence > DIVERGENCE_THRESHOLD,
   };
@@ -290,7 +289,7 @@ const OBJECTIVE_WEIGHT = 0.55;
 const APPROACH_WEIGHT = 0.45;
 
 export async function gradeDebug(
-  client: Anthropic,
+  client: ModelClient,
   problem: Problem,
   finalFiles: SolutionFile[],
   runHistory: RunRecord[],
@@ -339,7 +338,7 @@ export async function gradeDebug(
     outcomes,
     falsePositives: [],
     breakdown,
-    graderModel: CALLS.judgeDebug.model,
+    graderModel: modelFor(client, "judgeDebug"),
     testsPassed,
   };
 }

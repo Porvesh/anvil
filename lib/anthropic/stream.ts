@@ -10,9 +10,9 @@
  *
  * SSE payloads: `data: {"type":"delta","text":"..."}` … `data: {"type":"done"}`.
  */
-import type Anthropic from "@anthropic-ai/sdk";
-import { callParams, type CallSite } from "./models";
-import { classifyModelError, isAbortError, modelRequestOptions } from "./reliability";
+import { streamModelText, type ModelClient } from "../ai/client";
+import type { CallSite } from "./models";
+import { classifyModelError, isAbortError } from "./reliability";
 
 export interface ChatTurn {
   role: "user" | "assistant";
@@ -35,7 +35,7 @@ export function ensureUserFirst(turns: ChatTurn[], kickoff: string): ChatTurn[] 
 type SystemPrefix = { type: "text"; text: string; cache_control: { type: "ephemeral" } }[];
 
 export function sseFromMessages(
-  client: Anthropic,
+  client: ModelClient,
   site: CallSite,
   system: SystemPrefix,
   messages: ChatTurn[],
@@ -56,18 +56,12 @@ export function sseFromMessages(
         }
       };
       try {
-        let full = "";
-        const stream = client.messages.stream({
-          ...callParams(site),
-          system,
-          messages,
-        }, modelRequestOptions(site, signal));
-        abortUpstream = () => stream.abort();
-        stream.on("text", (delta) => {
-          full += delta;
+        const upstream = new AbortController();
+        const requestSignal = signal ? AbortSignal.any([signal, upstream.signal]) : upstream.signal;
+        abortUpstream = () => upstream.abort();
+        const full = await streamModelText(client, site, system.map((part) => part.text).join("\n"), messages, (delta) => {
           send({ type: "delta", text: delta });
-        });
-        await stream.finalMessage();
+        }, requestSignal);
         if (onFinal) await onFinal(full);
         send({ type: "done" });
       } catch (err) {

@@ -5,7 +5,7 @@ import { streamHintSSE } from "@/lib/anthropic/hint";
 import { SSE_HEADERS } from "@/lib/anthropic/stream";
 import { clientKey, rateLimit } from "@/lib/ratelimit";
 import { hintBodySchema } from "@/lib/validation";
-import { byokRequiredResponse, userAnthropicFromRequest } from "@/lib/anthropic/byok";
+import { byokRequiredResponse, userModelFromRequest } from "@/lib/anthropic/byok";
 
 export const runtime = "nodejs";
 
@@ -13,7 +13,7 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   const limit = rateLimit(clientKey(req));
   if (!limit.ok) return NextResponse.json({ error: "Rate limit exceeded — try again shortly." }, { status: 429 });
-  const client = userAnthropicFromRequest(req);
+  const client = userModelFromRequest(req);
   if (!client) return byokRequiredResponse();
 
   const parsed = hintBodySchema.safeParse(await req.json().catch(() => null));

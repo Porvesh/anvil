@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { describe, expect, it } from "vitest";
 import { classifyModelError, isAbortError, modelRequestOptions } from "../lib/anthropic/reliability";
 
@@ -35,6 +36,14 @@ describe("model error classification", () => {
       new Headers(),
     );
     expect(classifyModelError(auth)).toMatchObject({ code: "configuration", retryable: false });
+
+    const openAiAuth = OpenAI.APIError.generate(
+      401,
+      { error: { type: "invalid_request_error", message: "bad OpenAI key" } },
+      "bad OpenAI key",
+      new Headers(),
+    );
+    expect(classifyModelError(openAiAuth)).toMatchObject({ code: "configuration", retryable: false });
 
     const aborted = new DOMException("aborted", "AbortError");
     expect(isAbortError(aborted)).toBe(true);
