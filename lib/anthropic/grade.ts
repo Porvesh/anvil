@@ -118,8 +118,10 @@ export async function judgeReview(
     ].join("\n"),
   );
 
+  // The file matters on a multi-file PR: two comments can both be "line 42", and
+  // without the path the judge can't tell which code either one is about.
   const unmatchedText = unmatched.length
-    ? unmatched.map((c, idx) => `[${idx}] line ${c.line}: ${c.body}`).join("\n")
+    ? unmatched.map((c, idx) => `[${idx}] ${c.file ? `${c.file} ` : ""}line ${c.line}: ${c.body}`).join("\n")
     : "(none)";
 
   const byId = new Map(problem.answerKey.map((i) => [i.id, i]));

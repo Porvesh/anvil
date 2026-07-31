@@ -289,7 +289,7 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
               prMeta={problem.prMeta}
               diff={problem.diff ?? []}
               comments={comments}
-              onAddComment={(line, body) => setComments((c) => [...c, { line, body }])}
+              onAddComment={(file, line, body) => setComments((c) => [...c, { file, line, body }])}
               onRemoveComment={(index) => setComments((c) => c.filter((_, i) => i !== index))}
             />
           ) : (
