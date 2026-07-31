@@ -22,6 +22,27 @@ const JdTagsSchema = z.object({
     .describe("the seniority this role is pitched at, which maps to problem difficulty"),
 });
 
+/**
+ * The schema we send, minus the SDK's client-side `parse`.
+ *
+ * The enum stays in the JSON schema because it is what steers the model toward
+ * the closed vocabulary. What we drop is the SDK's strict validation of the
+ * reply: it throws an AnthropicError on the very slip `parseTags` was written to
+ * absorb, so a single out-of-vocabulary tag ("kubernetes" for an SRE posting)
+ * took down the whole request instead of being discarded. Narrowing below is the
+ * authority on what counts as a tag; the schema is only a hint to the model.
+ */
+const { parse: _strictParse, ...JD_FORMAT } = zodOutputFormat(JdTagsSchema);
+
+const SENIORITIES = ["junior", "mid", "senior", "staff"] as const;
+
+/** Narrow the model's seniority to a known level, defaulting to the middle. */
+function asSeniority(value: unknown): JdAnalysis["seniority"] {
+  return typeof value === "string" && (SENIORITIES as readonly string[]).includes(value)
+    ? (value as JdAnalysis["seniority"])
+    : "mid";
+}
+
 export interface JdAnalysis {
   tags: Tag[];
   seniority: "junior" | "mid" | "senior" | "staff";
@@ -42,7 +63,7 @@ export function difficultyFor(seniority: JdAnalysis["seniority"]): "easy" | "med
  * produces.
  */
 export async function analyzeJd(jd: string): Promise<JdAnalysis> {
-  const result = await anthropic.messages.parse({
+  const result = await anthropic.messages.create({
     ...callParams("jdMatch"),
     system: [
       {
@@ -64,11 +85,27 @@ export async function analyzeJd(jd: string): Promise<JdAnalysis> {
       },
     ],
     messages: [{ role: "user", content: `JOB DESCRIPTION:\n\n${jd}` }],
-    output_config: { format: zodOutputFormat(JdTagsSchema) },
+    output_config: { format: JD_FORMAT },
   });
 
+  const text = result.content
+    .filter((block): block is Extract<typeof block, { type: "text" }> => block.type === "text")
+    .map((block) => block.text)
+    .join("");
+
+  // An unreadable reply means "the bank has nothing for this JD", not a 500: the
+  // caller already renders the no-tags case, and matching is an optimization on
+  // top of a bank the user can browse anyway.
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return { tags: [], seniority: "mid" };
+  }
+
+  const parsed = raw as { tags?: unknown; seniority?: unknown };
   return {
-    tags: parseTags(result.parsed_output?.tags ?? []),
-    seniority: result.parsed_output?.seniority ?? "mid",
+    tags: parseTags(parsed.tags ?? []),
+    seniority: asSeniority(parsed.seniority),
   };
 }

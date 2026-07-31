@@ -37,7 +37,17 @@ export async function POST(req: Request) {
   }
   const { jd, sessionId } = parsed.data;
 
-  const { tags, seniority } = await analyzeJd(jd);
+  // A tagging failure degrades to "the bank has nothing for this JD" rather than
+  // an error: the client already handles an empty match list by offering the
+  // bank and a tailored generation, so a 500 here would break a flow that has a
+  // perfectly good fallback.
+  let tags, seniority;
+  try {
+    ({ tags, seniority } = await analyzeJd(jd));
+  } catch {
+    return NextResponse.json({ tags: [], seniority: "mid", confidence: 0, matches: [] });
+  }
+
   if (tags.length === 0) {
     return NextResponse.json({ tags: [], seniority, confidence: 0, matches: [] });
   }
