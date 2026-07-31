@@ -18,6 +18,7 @@ import type {
   TestSuite,
 } from "./types";
 import { qualityLabel } from "./curation";
+import { parseTags } from "./tags";
 
 /** Cast a stored Json column to a typed value (or null). */
 function json<T>(value: unknown): T | null {
@@ -47,6 +48,9 @@ export function toProblem(row: PrismaProblem): Problem {
     answerKey: (json<AnswerKeyIssue[]>(row.answerKey) ?? []),
     qualityScore: row.qualityScore,
     source: row.source as "authored" | "generated",
+    generatorModel: row.generatorModel,
+    sourceJobId: row.sourceJobId,
+    tags: parseTags(row.tags),
     upvotes: row.upvotes,
     downvotes: row.downvotes,
     timesAttempted: row.timesAttempted,

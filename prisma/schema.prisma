@@ -43,6 +43,19 @@ model Problem {
   qualityScore Float? // curation/pruning signal from generation self-check
   source       String @default("authored") // "authored" | "generated"
 
+  // --- provenance (spec §11 / INV-11) ---
+  // Which model wrote this problem, and which job produced it. Without these,
+  // every quality comparison across model routings is unanswerable after the
+  // fact — "did Opus generation actually help?" needs the label on the row.
+  generatorModel String? // null for hand-authored seeds
+  sourceJobId    String? // GenerationJob that produced it (set from B8 onward)
+
+  // --- matching (spec §13) ---
+  // Fixed-vocabulary topic tags, used by JD match-first to serve an existing
+  // problem instead of paying for generation. Json (not a relation) because the
+  // vocabulary is closed and set-overlap is computed in code.
+  tags Json @default("[]") // Tag[] — see lib/tags.ts
+
   // --- community curation (spec §16 v2: "upvoting good problems") ---
   // Denormalized tallies incremented atomically on each vote so the hot bank-read
   // path never has to aggregate the Vote table. `retired` is a cheap boolean the

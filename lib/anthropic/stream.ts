@@ -1,13 +1,17 @@
 /**
  * Shared SSE streaming helper for the chat-style model calls (Socratic
- * follow-up and solve-time hints). Both stream Haiku token-by-token to the
- * browser in the same wire format, so the streaming mechanics live here and the
- * callers only build the system prefix + messages.
+ * follow-up and solve-time hints). Both stream token-by-token to the browser in
+ * the same wire format, so the streaming mechanics live here and the callers
+ * only build the system prefix + messages.
+ *
+ * The two callers route to different models on purpose (Socratic gets the
+ * strongest model, hints are deliberately capped — see lib/anthropic/models.ts),
+ * so the call site is a parameter rather than a constant.
  *
  * SSE payloads: `data: {"type":"delta","text":"..."}` … `data: {"type":"done"}`.
  */
 import { anthropic } from "./client";
-import { MODELS, MAX_TOKENS } from "./models";
+import { callParams, type CallSite } from "./models";
 
 export interface ChatTurn {
   role: "user" | "assistant";
@@ -30,9 +34,9 @@ export function ensureUserFirst(turns: ChatTurn[], kickoff: string): ChatTurn[] 
 type SystemPrefix = { type: "text"; text: string; cache_control: { type: "ephemeral" } }[];
 
 export function sseFromMessages(
+  site: CallSite,
   system: SystemPrefix,
   messages: ChatTurn[],
-  maxTokens: number = MAX_TOKENS.socratic,
   onFinal?: (reply: string) => void | Promise<void>,
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
@@ -42,8 +46,7 @@ export function sseFromMessages(
       try {
         let full = "";
         const stream = anthropic.messages.stream({
-          model: MODELS.grading,
-          max_tokens: maxTokens,
+          ...callParams(site),
           system,
           messages,
         });

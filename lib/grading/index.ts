@@ -14,6 +14,7 @@ import type {
   ScoreLine,
   SolutionFile,
 } from "../types";
+import { CALLS } from "../anthropic/models";
 import { matchReviewComments } from "./matcher";
 import { judgeDebug, judgeDesign, judgeReview } from "../anthropic/grade";
 
@@ -96,6 +97,7 @@ export async function gradeReview(
     outcomes,
     falsePositives,
     breakdown,
+    graderModel: CALLS.judgeReview.model,
   };
 }
 
@@ -153,6 +155,7 @@ export async function gradeDesign(problem: Problem, doc: string): Promise<Grade>
     outcomes,
     falsePositives: [],
     breakdown,
+    graderModel: CALLS.judgeDesign.model,
   };
 }
 
@@ -212,6 +215,7 @@ export async function gradeDebug(
     outcomes,
     falsePositives: [],
     breakdown,
+    graderModel: CALLS.judgeDebug.model,
     testsPassed,
   };
 }

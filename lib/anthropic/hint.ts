@@ -4,7 +4,6 @@
  * PUBLIC problem only (no answer key) — so it reasons from the code like a
  * colleague and physically can't leak ground truth.
  */
-import { MAX_TOKENS } from "./models";
 import { ensureUserFirst, sseFromMessages, type ChatTurn } from "./stream";
 import type { ChatMessage, PublicProblem } from "../types";
 
@@ -59,5 +58,5 @@ export function streamHintSSE(
   const turns: ChatTurn[] = toTurns(history);
   if (userMessage) turns.push({ role: "user", content: userMessage });
   const messages = ensureUserFirst(turns, KICKOFF);
-  return sseFromMessages(buildSystem(problem, ctx), messages, MAX_TOKENS.socratic);
+  return sseFromMessages("hint", buildSystem(problem, ctx), messages);
 }

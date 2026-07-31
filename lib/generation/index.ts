@@ -1,15 +1,17 @@
 /**
  * Shared generate → self-check → persist pipeline (spec §11), used by BOTH the
- * offline CLI (scripts/generate-bank.ts) and the live JD route (/api/generate).
- * One place owns "make a real, verified problem and put it in the bank".
+ * offline CLI (scripts/generate-bank.ts) and the worker tier. One place owns
+ * "make a real, verified problem and put it in the bank".
  *
- * Debug problems are executed (python3) so a hallucinated bug can't enter the
- * bank; review problems are model-verified. Only problems that pass persist.
+ * Both debug and review problems are executed (python3) so a hallucinated bug
+ * can't enter the bank. Only problems that pass persist.
  */
 import type { PrismaClient } from "@prisma/client";
 import type { Difficulty, ProblemType } from "../types";
-import { generateDebug, generateReview, verifyReview } from "./generate";
-import { selfCheckDebug } from "./selfcheck";
+import { CALLS } from "../anthropic/models";
+import { parseTags } from "../tags";
+import { GenerationRefusedError, generateDebug, generateReview } from "./generate";
+import { selfCheckDebug, selfCheckReview } from "./selfcheck";
 
 export interface GenerateOpts {
   type: Extract<ProblemType, "debug" | "review">;
@@ -17,6 +19,10 @@ export interface GenerateOpts {
   topic?: string;
   jd?: string;
   maxAttempts?: number;
+  /** GenerationJob this run belongs to, recorded on the row for provenance. */
+  jobId?: string;
+  /** Called with a one-line progress note per attempt (CLI logging, SSE phases). */
+  onProgress?: (note: string) => void;
 }
 
 export interface GenerateResult {
@@ -24,18 +30,31 @@ export interface GenerateResult {
   title: string;
   qualityScore: number;
   attempts: number;
+  /** Which model actually produced it — may be the fallback after a refusal. */
+  generatorModel: string;
 }
 
-/** Generate one verified problem and persist it. Returns null if every attempt
- *  failed self-check (the caller decides how to surface that). */
+/**
+ * Generate one verified problem and persist it. Returns null if every attempt
+ * failed its gates (the caller decides how to surface that).
+ *
+ * Two distinct retry reasons are handled differently:
+ *  - a *rejection* (failed the oracle, unusable file layout) retries the same
+ *    model, since generation is stochastic and the next draw may pass;
+ *  - a *refusal* switches to the fallback model, because re-asking the same
+ *    model the same question gets declined again. This product deliberately
+ *    authors vulnerable code, so refusals are expected, not exceptional.
+ */
 export async function generateAndPersist(prisma: PrismaClient, opts: GenerateOpts): Promise<GenerateResult | null> {
-  const { type, difficulty, topic, jd, maxAttempts = 3 } = opts;
+  const { type, difficulty, topic, jd, maxAttempts = 3, jobId, onProgress } = opts;
+  const note = (msg: string) => onProgress?.(msg);
+
+  let model: string = CALLS.generation.model;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    // A throw from generation/parse must retry, not abort the whole loop.
     try {
       if (type === "debug") {
-        const p = await generateDebug(difficulty, topic, jd);
+        const p = await generateDebug(difficulty, topic, jd, model);
 
         // The file(s) the answer key points at ARE where the user must edit — force
         // them editable so the model can't accidentally ship an unsolvable problem
@@ -44,11 +63,17 @@ export async function generateAndPersist(prisma: PrismaClient, opts: GenerateOpt
         const buggyPaths = new Set(p.answerKey.map((i) => i.file).filter((f): f is string => !!f));
         const files = p.buggyFiles.map((f) => (buggyPaths.has(f.path) ? { ...f, readOnly: false } : f));
         const bugFileIsEditable = files.some((f) => buggyPaths.has(f.path) && !f.readOnly);
-        if (!bugFileIsEditable) continue;
+        if (!bugFileIsEditable) {
+          note(`attempt ${attempt}: rejected — answer key points at no editable file`);
+          continue;
+        }
 
         const suite = { setup: p.setup, cases: p.cases };
         const check = await selfCheckDebug(p.correctFiles, files, suite);
-        if (!check.ok) continue;
+        if (!check.ok) {
+          note(`attempt ${attempt}: rejected — ${check.reason}`);
+          continue;
+        }
         const row = await prisma.problem.create({
           data: {
             type: "debug",
@@ -62,14 +87,21 @@ export async function generateAndPersist(prisma: PrismaClient, opts: GenerateOpt
             answerKey: p.answerKey as unknown as object,
             qualityScore: check.qualityScore,
             source: "generated",
+            generatorModel: model,
+            sourceJobId: jobId ?? null,
+            tags: parseTags(p.tags),
           },
           select: { id: true, title: true },
         });
-        return { ...row, qualityScore: check.qualityScore, attempts: attempt };
+        return { ...row, qualityScore: check.qualityScore, attempts: attempt, generatorModel: model };
       }
-      const p = await generateReview(difficulty, topic, jd);
-      const check = await verifyReview(p);
-      if (!check.ok) continue;
+
+      const p = await generateReview(difficulty, topic, jd, model);
+      const check = await selfCheckReview(p);
+      if (!check.ok) {
+        note(`attempt ${attempt}: rejected — ${check.reason}`);
+        continue;
+      }
       const row = await prisma.problem.create({
         data: {
           type: "review",
@@ -83,13 +115,25 @@ export async function generateAndPersist(prisma: PrismaClient, opts: GenerateOpt
           answerKey: p.answerKey as unknown as object,
           qualityScore: check.qualityScore,
           source: "generated",
+          generatorModel: model,
+          sourceJobId: jobId ?? null,
+          tags: parseTags(p.tags),
         },
         select: { id: true, title: true },
       });
-      return { ...row, qualityScore: check.qualityScore, attempts: attempt };
-    } catch {
+      return { ...row, qualityScore: check.qualityScore, attempts: attempt, generatorModel: model };
+    } catch (err) {
+      if (err instanceof GenerationRefusedError && model !== CALLS.generationFallback.model) {
+        // Don't burn an attempt on a refusal: the request was never really
+        // tried, and the fallback deserves its own full budget.
+        model = CALLS.generationFallback.model;
+        note(`attempt ${attempt}: refused (${err.category ?? "no category"}) — switching to ${model}`);
+        attempt -= 1;
+        continue;
+      }
       // A transient generation/parse/streaming failure retries within budget
       // rather than aborting every remaining attempt.
+      note(`attempt ${attempt}: ${err instanceof Error ? err.message : String(err)}`);
       continue;
     }
   }
