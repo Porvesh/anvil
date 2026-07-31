@@ -22,15 +22,6 @@
   font-size: 18px;
   letter-spacing: -0.01em;
 }
-.tag {
-  color: var(--steel-dim);
-  font-family: var(--mono);
-  font-size: 11px;
-  border: 1px solid var(--edge);
-  padding: 1px 6px;
-  border-radius: 20px;
-  letter-spacing: 0.04em;
-}
 .grow {
   flex: 1;
 }
@@ -47,4 +38,10 @@
 .nav a:hover {
   background: var(--slab2);
   color: var(--parchment);
+}
+/* Where you are. Without this the nav gave no feedback that a click landed. */
+.nav a.active {
+  color: var(--parchment);
+  background: var(--slab2);
+  box-shadow: inset 0 -2px 0 var(--spark);
 }

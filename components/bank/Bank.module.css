@@ -1,0 +1,240 @@
+/* The full bank list. Shares the home page's card/pill vocabulary so browsing
+   the bank doesn't feel like a different product. */
+.wrap {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 40px 24px 72px;
+}
+
+.head {
+  margin-bottom: 26px;
+}
+.h1 {
+  font-family: var(--disp);
+  font-size: 30px;
+  line-height: 1.15;
+  margin: 10px 0 0;
+  letter-spacing: -0.01em;
+}
+.sub {
+  color: var(--steel);
+  font-size: 14px;
+  margin: 9px 0 0;
+  max-width: 70ch;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+/* Segmented control, matching the home page's type/difficulty switches. */
+.seg {
+  display: inline-flex;
+  background: var(--slab);
+  border: 1px solid var(--edge-soft);
+  border-radius: 9px;
+  padding: 3px;
+  gap: 2px;
+}
+.seg button {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--steel);
+  padding: 5px 11px;
+  border-radius: 7px;
+  white-space: nowrap;
+  transition: 0.12s;
+}
+.seg button:hover {
+  color: var(--parchment);
+}
+.seg button.on {
+  background: var(--raise);
+  color: var(--parchment);
+}
+
+.count {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--steel-dim);
+}
+
+.tagrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 12px 0 18px;
+  border-top: 1px solid var(--edge-soft);
+}
+.tagLabel {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--steel-dim);
+  margin-right: 3px;
+}
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--steel);
+  border: 1px solid var(--edge);
+  border-radius: 20px;
+  padding: 3px 10px;
+  transition: 0.12s;
+}
+.tag:hover {
+  color: var(--parchment);
+  border-color: var(--steel-dim);
+}
+.tagOn {
+  color: var(--blue);
+  border-color: var(--blue-deep);
+  background: rgba(90, 166, 230, 0.12);
+}
+.tagCount {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--steel-dim);
+}
+.tagOn .tagCount {
+  color: var(--blue);
+}
+.clear {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--spark);
+  padding: 3px 6px;
+}
+.clear:hover {
+  text-decoration: underline;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 16px;
+  border: 1px solid var(--edge-soft);
+  border-radius: 10px;
+  background: var(--slab);
+  color: inherit;
+  transition: 0.12s;
+}
+.row:hover {
+  border-color: var(--steel-dim);
+  background: var(--slab2);
+}
+.row:hover .title {
+  color: #fff;
+}
+/* Title on its own line above the metadata: the two were competing for the same
+   row, which left the title dim and the metadata ragged. */
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.title {
+  font-size: 14.5px;
+  color: var(--parchment);
+  line-height: 1.25;
+}
+.sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* The scale cue — the thing that distinguishes a five-file feature PR from a
+   six-line patch before you click it. */
+.scale {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--parchment-dim);
+  background: var(--raise);
+  border-radius: 5px;
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+.rowtag {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--steel-dim);
+  background: var(--iron);
+  border-radius: 20px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.good {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--green);
+  background: rgba(87, 199, 138, 0.12);
+  border-radius: 20px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.attempts {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--steel-dim);
+  white-space: nowrap;
+  min-width: 76px;
+  text-align: right;
+}
+.diff {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  min-width: 58px;
+  text-align: right;
+}
+/* Difficulty carries meaning, so give it the same three bands as a score
+   instead of rendering all three the same shade of grey. */
+.easy {
+  color: var(--green);
+}
+.medium {
+  color: var(--amber);
+}
+.hard {
+  color: var(--red);
+}
+
+.empty {
+  border: 1px dashed var(--edge);
+  border-radius: 12px;
+  padding: 28px;
+  text-align: center;
+  color: var(--steel);
+  font-size: 13.5px;
+}
+.link {
+  color: var(--blue);
+  font: inherit;
+  padding: 0;
+}
+.link:hover {
+  text-decoration: underline;
+}
