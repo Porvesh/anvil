@@ -9,6 +9,10 @@
   width: 100%;
   padding: 10px 16px;
   text-align: left;
+  /* Match the body's reading measure (86ch + its 16px gutters) so the
+     difficulty chip and collapse arrow sit at the card's right edge instead of
+     drifting to the far side of a wide pane. */
+  max-width: calc(86ch + 32px);
 }
 .header:hover .toggle {
   color: var(--parchment);
@@ -69,11 +73,62 @@
   border: 1px solid var(--edge-soft);
   border-left: 3px solid var(--spark);
   border-radius: 0 8px 8px 0;
-  padding: 11px 14px;
+  padding: 12px 15px;
   color: var(--parchment-dim);
   font-size: 13.5px;
-  line-height: 1.6;
+  line-height: 1.62;
   max-width: 86ch;
+}
+
+/* The brief is model-authored prose rendered by lib/richText: paragraphs, an
+   occasional enumeration, and inline identifiers. Tight vertical rhythm keeps a
+   two-incident report from pushing the editor off-screen. */
+.symptom > :first-child {
+  margin-top: 0;
+}
+.symptom > :last-child {
+  margin-bottom: 0;
+}
+.symptom p {
+  margin: 0 0 9px;
+}
+/* A brief occasionally arrives with its own section headings. */
+.symptom h4,
+.symptom h5,
+.symptom h6 {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--steel-dim);
+  margin: 13px 0 6px;
+}
+.symptom ol,
+.symptom ul {
+  margin: 0 0 9px;
+  padding-left: 22px;
+  display: grid;
+  gap: 6px;
+}
+.symptom li::marker {
+  color: var(--steel-dim);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.symptom code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--slab2);
+  border: 1px solid var(--edge-soft);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--spark-soft);
+  white-space: nowrap;
+}
+.symptom strong {
+  color: var(--parchment);
+  font-weight: 600;
 }
 .trains {
   display: flex;

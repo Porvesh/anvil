@@ -38,6 +38,13 @@
   flex-direction: column;
   gap: 14px;
 }
+/* Fill from the bottom, the way a chat does: a one-line greeting in a
+   full-height panel otherwise floats at the top with a void beneath it. Done
+   with auto margin rather than justify-content:flex-end, which can make the top
+   of an overflowing scroll container unreachable. */
+.chat > :first-child {
+  margin-top: auto;
+}
 .msg {
   font-size: 13.5px;
   line-height: 1.55;
@@ -155,6 +162,7 @@
   border-color: var(--blue-deep);
 }
 .voicebtn {
+  position: relative;
   width: 38px;
   height: 38px;
   border-radius: 10px;
@@ -162,12 +170,33 @@
   border: 1px solid var(--edge);
   display: grid;
   place-items: center;
-  font-size: 16px;
+  color: var(--steel);
   flex: none;
   transition: 0.12s;
 }
 .voicebtn:hover {
   border-color: var(--steel-dim);
+  color: var(--parchment);
+}
+/* Expanding ring while the mic is actually capturing — the state has to be
+   unmissable, since an open mic you forgot about is the worst kind of quiet. */
+.listenRing {
+  position: absolute;
+  inset: -1px;
+  border-radius: 10px;
+  border: 1.5px solid var(--spark);
+  animation: listenring 1.2s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes listenring {
+  0% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.35);
+  }
 }
 .voicebtn:disabled {
   opacity: 0.4;
@@ -176,16 +205,12 @@
 .voiceOn {
   border-color: var(--blue);
   background: rgba(90, 166, 230, 0.12);
+  color: var(--blue);
 }
 .listening {
   border-color: var(--spark);
   background: var(--spark-glow);
-  animation: micpulse 1s ease-in-out infinite;
-}
-@keyframes micpulse {
-  50% {
-    box-shadow: 0 0 0 4px var(--spark-glow);
-  }
+  color: var(--spark);
 }
 .send {
   width: 38px;
