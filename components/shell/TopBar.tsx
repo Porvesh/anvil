@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Logo } from "./Logo";
-import { IconKey } from "@/lib/icons";
+import { IconKey, IconLock } from "@/lib/icons";
 import { BYOK_REQUIRED_EVENT } from "@/lib/byokClient";
 import styles from "./TopBar.module.css";
 
@@ -225,8 +225,17 @@ export function TopBar() {
             )}
 
             {connected && error && <p className={styles.keyError} role="alert">{error}</p>}
-            <div className={styles.securityNote}>
-              The key is encrypted in an HttpOnly cookie and is never stored in Anvil&rsquo;s database.
+            <div className={styles.securityPanel} aria-label="API key security">
+              <div className={styles.securityTitle}><IconLock size={14} /><strong>How your key is protected</strong></div>
+              <ul>
+                <li><strong>Encrypted:</strong> Sealed with AES-256-GCM before the browser stores the session cookie.</li>
+                <li><strong>Not saved:</strong> Never written to Anvil&rsquo;s database, localStorage, sessionStorage, or app logs.</li>
+                <li><strong>Browser-isolated:</strong> The HttpOnly cookie cannot be read by page JavaScript and is Secure on HTTPS.</li>
+                <li><strong>Short-lived:</strong> Used only with your selected provider and removed automatically after eight hours.</li>
+              </ul>
+            </div>
+            <div className={styles.securityActions}>
+              <span>You can remove access at any time.</span>
               {connected ? (
                 <button onClick={disconnect} disabled={busy}>{busy ? "Removing…" : "Remove key"}</button>
               ) : (
