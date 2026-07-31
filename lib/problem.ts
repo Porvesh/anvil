@@ -55,12 +55,19 @@ export function toProblem(row: PrismaProblem): Problem {
 }
 
 /**
- * Public view sent to the browser while solving. The answer key is stripped so
- * ground truth never leaves the server — grading happens server-side against it.
+ * Public view sent to the browser while solving — the single chokepoint where a
+ * DB row becomes client-facing, which is why it is also the single place ground
+ * truth gets withheld. One chokepoint is auditable; three aren't.
+ *
+ * Withholds the answer key (INV-1), its length (INV-9 — a flaw count is itself
+ * a spoiler), and the pasted JD (INV-12 — it can carry a real company's
+ * internal details into a shared bank). See PublicProblem in lib/types.ts.
  */
 export function toPublicProblem(row: PrismaProblem): PublicProblem {
-  const { answerKey, ...rest } = toProblem(row);
-  return { ...rest, answerKeyCount: answerKey.length };
+  const { answerKey, jdContext, ...rest } = toProblem(row);
+  void answerKey;
+  void jdContext;
+  return rest;
 }
 
 /** Compact bank-list row, including the curation signals the bank UI renders. */
