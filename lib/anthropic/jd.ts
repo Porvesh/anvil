@@ -72,6 +72,8 @@ export async function analyzeJd(client: ModelClient, jd: string, signal?: AbortS
     "the role implies — not for every technology the posting name-drops. A payments role is about",
     "idempotency, retries, and transactions whether or not it uses those words. Ignore benefits,",
     "culture, and location entirely.",
+    "When the role has an explicit product domain (for example robotics, video, payments, or search),",
+    "include that domain tag. Prefer specific concerns such as latency or streaming over generic backend tags.",
     "",
     `Allowed tags (use ONLY these): ${FIXED_VOCAB.join(", ")}.`,
   ].join("\n");

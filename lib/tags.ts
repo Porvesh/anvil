@@ -42,8 +42,14 @@ export const FIXED_VOCAB = [
   "rate-limiting",
   "scaling",
   "performance",
+  "real-time",
+  "latency",
+  "networking",
+  "video",
   "memory",
   "observability",
+  "profiling",
+  "reliability",
   // domains
   "payments",
   "billing",
@@ -55,6 +61,7 @@ export const FIXED_VOCAB = [
   "notifications",
   "search",
   "analytics",
+  "robotics",
   // stack
   "python",
   "typescript",
@@ -107,3 +114,30 @@ export function tagOverlap(jdTags: Tag[], problemTags: Tag[]): number {
 
 /** Overlap at or above this counts as "the bank already has this" (spec §13). */
 export const MATCH_THRESHOLD = 0.4;
+
+/**
+ * Domain tags are intent gates, not just extra overlap points. A robotics JD
+ * should not match a generic distributed-systems problem merely because both
+ * mention performance and backend work.
+ */
+const DOMAIN_TAGS = new Set<Tag>([
+  "payments",
+  "billing",
+  "webhooks",
+  "auth",
+  "security",
+  "inventory",
+  "notifications",
+  "search",
+  "analytics",
+  "video",
+  "robotics",
+]);
+
+export function isRelevantTagMatch(jdTags: Tag[], problemTags: Tag[]): boolean {
+  if (tagOverlap(jdTags, problemTags) < MATCH_THRESHOLD) return false;
+  const requiredDomains = jdTags.filter((tag) => DOMAIN_TAGS.has(tag));
+  if (requiredDomains.length === 0) return true;
+  const problemSet = new Set(problemTags);
+  return requiredDomains.some((tag) => problemSet.has(tag));
+}

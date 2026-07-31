@@ -111,14 +111,11 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
       const matches: { id: string; type: ProblemType }[] = data.matches ?? [];
       const preferred = type === "any" ? matches : matches.filter((m) => m.type === type);
       const best = preferred[0] ?? matches[0];
-
-      const typed = type === "any" ? problems : problems.filter((problem) => problem.type === type);
-      const fallback = pick(typed.filter((problem) => problem.difficulty === difficulty)) ?? pick(typed) ?? pick(problems);
-      const target = best ?? fallback;
-      if (!target) {
-        throw new Error("The bank is empty — run the generator to seed it.");
+      if (!best) {
+        const track = type === "any" ? "problem" : `${TYPE_LABEL[type].toLowerCase()} problem`;
+        throw new Error(`No close ${track} match is banked for this role yet. Try another track or browse the problem bank.`);
       }
-      router.push(`/solve/${target.id}`);
+      router.push(`/solve/${best.id}`);
     } catch (err) {
       setGenError(err instanceof Error ? err.message : "Matching failed");
       setMatching(false);

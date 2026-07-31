@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { asTag, parseTags, tagOverlap, FIXED_VOCAB } from "../lib/tags";
+import { asTag, parseTags, tagOverlap, isRelevantTagMatch, FIXED_VOCAB } from "../lib/tags";
 
 describe("tag vocabulary", () => {
   it("normalizes case and whitespace when narrowing to the vocabulary", () => {
@@ -24,6 +24,16 @@ describe("tag vocabulary", () => {
 
   it("treats an unlabelled JD as matching nothing", () => {
     expect(tagOverlap([], ["caching"])).toBe(0);
+  });
+
+  it("requires a shared domain instead of matching on generic systems tags", () => {
+    const teleop = ["robotics", "distributed", "performance", "backend"] as const;
+    const rateLimiter = ["rate-limiting", "distributed", "performance", "backend"] as const;
+    const robotStreaming = ["robotics", "streaming", "performance", "distributed"] as const;
+
+    expect(tagOverlap([...teleop], [...rateLimiter])).toBe(0.75);
+    expect(isRelevantTagMatch([...teleop], [...rateLimiter])).toBe(false);
+    expect(isRelevantTagMatch([...teleop], [...robotStreaming])).toBe(true);
   });
 
   it("keeps the vocabulary unique, which set-overlap depends on", () => {

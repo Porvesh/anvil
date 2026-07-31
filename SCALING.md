@@ -57,6 +57,7 @@ Interactive model calls are charged to each user's selected Anthropic or OpenAI 
 - Only transient connection/408/409/429/5xx failures retry.
 - Generation is rate-budgeted, queued, verified once, and reused.
 - JD matching serves existing tagged problems; generation remains a separate operator action.
+- Domain-specific JDs require at least one shared domain tag; an empty result is surfaced honestly instead of falling back to a random bank item.
 - Cancellation propagates to the provider for chat and grading.
 - User credentials expire after eight hours and never fall back to the operator key.
 - OpenAI Responses API calls disable provider-side response storage with `store: false`.
