@@ -199,17 +199,6 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
           Fix a bug in a service that&apos;s already running. Review a few hundred lines of AI-written PR that reads
           perfectly and isn&apos;t. Argue a design out loud with an interviewer that pushes back.
         </p>
-        <ul className={styles.heroProof}>
-          <li>
-            <b>{problems.length} problems</b>, every one verified before it landed
-          </li>
-          <li>
-            Anvil plants the flaws, so grading is <b>a match, not a vibe</b>
-          </li>
-          <li>
-            Then it asks what you missed — <b>the follow-up is the lesson</b>
-          </li>
-        </ul>
       </section>
 
       <div className={styles.starter}>
@@ -288,7 +277,7 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
 
       <section className={styles.how}>
         <div className={styles.howLead}>
-          <div className="eyebrow">Why this works</div>
+          <div className="eyebrow">How it works</div>
           <h2>The grader holds the answer key</h2>
         </div>
         <div className={styles.howGrid}>
@@ -296,33 +285,27 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
             <div className={styles.howNum}>1</div>
             <h4>Flaws are seeded, not guessed</h4>
             <p>
-              Every problem starts as clean, correct code. Realistic flaws are planted into it — and each one is verified real by
-              actually executing the code before it enters the bank.
+              Each problem starts as working code. Anvil plants the flaws, then runs the tests. If they don&apos;t fail, the
+              problem never enters the bank.
             </p>
           </div>
           <div className={styles.howStep}>
             <div className={styles.howNum}>2</div>
-            <h4>You solve in your browser</h4>
-            <p>
-              Python runs in a WebAssembly sandbox on your machine — no servers, no setup, no code leaving your tab. Edit, run,
-              iterate until green.
-            </p>
+            <h4>You solve in the browser</h4>
+            <p>Python runs in a WebAssembly sandbox on your machine. No setup, no server, nothing leaves the tab.</p>
           </div>
           <div className={styles.howStep}>
             <div className={styles.howNum}>3</div>
-            <h4>Grading is a match, not a vibe</h4>
+            <h4>Grading is a line match</h4>
             <p>
-              Because the flaws are known, grading is near-deterministic: caught / missed / false-positive against the seeded
-              answer key, line by line. Precision counts — nits cost points.
+              The seeded flaws are known, so a comment either lands on one or it doesn&apos;t: caught, missed, or false
+              positive. Nits cost points.
             </p>
           </div>
           <div className={styles.howStep}>
             <div className={styles.howNum}>4</div>
-            <h4>The follow-up is the lesson</h4>
-            <p>
-              An interviewer then probes exactly what you missed — one Socratic question at a time — the way a strong interviewer
-              would. That conversation is where the skill actually builds.
-            </p>
+            <h4>Then it asks what you missed</h4>
+            <p>One Socratic question at a time, aimed at the gap it just found in your reasoning.</p>
           </div>
         </div>
       </section>
