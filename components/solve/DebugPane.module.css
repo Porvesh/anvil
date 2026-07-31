@@ -3,6 +3,8 @@
   flex-direction: column;
   min-height: 0;
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 .edtop {
   display: flex;
@@ -272,4 +274,42 @@
   font-size: 12px;
   border-radius: 0 6px 6px 0;
   white-space: pre-wrap;
+}
+
+@media (max-width: 640px) {
+  .edtop {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px 10px;
+  }
+  .pkg {
+    display: none;
+  }
+  .tabs {
+    flex: 1 0 100%;
+    order: 1;
+  }
+  .filetab {
+    padding: 5px 10px;
+  }
+  .engine,
+  .kbd,
+  .run {
+    order: 2;
+  }
+  .engine {
+    margin-right: auto;
+  }
+  .run {
+    padding-inline: 13px;
+  }
+  .runpanel {
+    height: 190px;
+  }
+  .runpanelIdle {
+    height: 112px;
+  }
+  .runbody {
+    padding: 10px 12px;
+  }
 }

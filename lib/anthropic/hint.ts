@@ -5,7 +5,7 @@
  * colleague and physically can't leak ground truth.
  */
 import { ensureUserFirst, sseFromMessages, type ChatTurn } from "./stream";
-import type { ChatMessage, PublicProblem } from "../types";
+import type { ChatMessage, PublicProblem, SolutionFile } from "../types";
 
 const KICKOFF = "I'm working on this — give me a nudge toward the problem, not the answer.";
 
@@ -19,7 +19,9 @@ const SYSTEM_ROLE = [
 ].join("\n");
 
 export interface HintContext {
-  /** debug: the user's current code. */
+  /** debug: the user's current multi-file project. */
+  files?: SolutionFile[];
+  /** debug: legacy single-file client context. */
   code?: string;
   /** debug: latest test/console output. */
   output?: string;
@@ -29,13 +31,20 @@ export interface HintContext {
   doc?: string;
 }
 
+export function formatHintFiles(files: SolutionFile[]): string {
+  return files
+    .map((file) => `--- ${file.path}${file.readOnly ? " (read-only)" : ""} ---\n${file.content}`)
+    .join("\n\n");
+}
+
 function buildSystem(problem: PublicProblem, ctx: HintContext) {
   const text = [
     SYSTEM_ROLE,
     "",
     `PROBLEM (${problem.type}): ${problem.title}`,
     `SYMPTOM / PROMPT: ${problem.prompt}`,
-    ctx.code ? `\nCURRENT CODE:\n${ctx.code}` : "",
+    ctx.files?.length ? `\nCURRENT FILES:\n${formatHintFiles(ctx.files)}` : "",
+    !ctx.files?.length && ctx.code ? `\nCURRENT CODE:\n${ctx.code}` : "",
     ctx.output ? `\nLATEST OUTPUT:\n${ctx.output}` : "",
     ctx.diffText ? `\nDIFF UNDER REVIEW:\n${ctx.diffText}` : "",
     ctx.doc ? `\nCURRENT DESIGN DOC (work in progress):\n${ctx.doc}` : "",

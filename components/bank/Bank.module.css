@@ -124,6 +124,10 @@
   padding: 0;
   display: grid;
   gap: 8px;
+  min-width: 0;
+}
+.list > li {
+  min-width: 0;
 }
 .row {
   display: flex;
@@ -135,6 +139,7 @@
   background: var(--slab);
   color: inherit;
   transition: 0.12s;
+  min-width: 0;
 }
 .row:hover {
   border-color: var(--steel-dim);
@@ -237,4 +242,56 @@
 }
 .link:hover {
   text-decoration: underline;
+}
+
+@media (max-width: 640px) {
+  .wrap {
+    padding: 28px 16px 48px;
+  }
+  .h1 {
+    font-size: 25px;
+  }
+  .controls {
+    align-items: stretch;
+  }
+  .seg {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+  .seg button {
+    padding-inline: 9px;
+  }
+  .count {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+  .tagrow {
+    gap: 7px;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 8px 10px;
+    padding: 12px;
+  }
+  .row > :first-child {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .main {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+  .attempts {
+    grid-column: 2;
+    grid-row: 3;
+    min-width: 0;
+    text-align: left;
+  }
+  .diff {
+    grid-column: 3;
+    grid-row: 1;
+    min-width: 0;
+  }
 }

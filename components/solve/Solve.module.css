@@ -24,6 +24,9 @@
   font-family: var(--disp);
   font-weight: 600;
   font-size: 15px;
+  line-height: 1.35;
+  margin: 0;
+  min-width: 0;
 }
 .grow {
   flex: 1;
@@ -53,6 +56,9 @@
 }
 .hintbtn:hover {
   border-color: var(--steel-dim);
+}
+.mobileNav {
+  display: none;
 }
 
 /* `minmax(0, 1fr)` on the row, and `min-height: 0` on the column, are what keep a
@@ -89,7 +95,70 @@
 }
 
 @media (max-width: 900px) {
+  .solve {
+    height: calc(100dvh - 56px);
+  }
+  .subbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 12px;
+    padding: 10px 16px;
+  }
+  .crumb,
+  .grow {
+    display: none;
+  }
+  .title {
+    grid-column: 1;
+    grid-row: 1;
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+  .submit,
+  .hintbtn {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
+  }
+  .error {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    max-width: none;
+  }
+  .mobileNav {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 3px;
+    border: 1px solid var(--edge-soft);
+    border-radius: 8px;
+    background: var(--iron);
+  }
+  .mobileNav button {
+    padding: 6px 10px;
+    border-radius: 6px;
+    color: var(--steel);
+    font-family: var(--mono);
+    font-size: 11.5px;
+  }
+  .mobileNav button.mobileNavOn {
+    color: var(--parchment);
+    background: var(--raise);
+  }
   .stage {
     grid-template-columns: 1fr;
+  }
+  .center {
+    border-right: 0;
+    overflow: hidden;
+  }
+  .mobileHidden {
+    display: none !important;
+  }
+  .mobileActive {
+    display: flex;
   }
 }
