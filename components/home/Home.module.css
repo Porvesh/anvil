@@ -3,8 +3,12 @@
   margin: 0 auto;
   padding: 0 24px;
 }
+/* Deliberately flat: two attempts at a radial "forge glow" behind the headline
+   both produced a faintly visible clipped rectangle (against the translucent
+   top bar, then against the hero box edge). The palette carries the identity;
+   atmosphere isn't worth a visible seam. */
 .hero {
-  padding: 64px 0 30px;
+  padding: 60px 0 30px;
 }
 .hero h1 {
   font-family: var(--disp);
@@ -51,7 +55,10 @@
 }
 .jd textarea {
   width: 100%;
-  min-height: 340px;
+  /* A pasted JD scrolls, so the box only has to be tall enough to read a few
+     lines back. 340px made this card overshoot the bank beside it by more than
+     a full row, which read as an unfinished column rather than a choice. */
+  min-height: 232px;
   resize: vertical;
   margin-top: 12px;
   background: var(--iron);
@@ -85,6 +92,10 @@
   font-size: 12.5px;
   color: var(--steel);
   font-family: var(--mono);
+  transition: color 0.12s, background 0.12s;
+}
+.seg button:hover {
+  color: var(--parchment);
 }
 .seg button.on {
   background: var(--blue);
@@ -136,6 +147,9 @@
   margin-bottom: 10px;
 }
 .shuffle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-family: var(--mono);
   font-size: 11.5px;
   color: var(--steel);
@@ -153,6 +167,17 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: none;
+}
+/* Abbreviated in this narrow column ("5f +258"); the bank page spells it out. */
+.scale {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--parchment-dim);
+  background: var(--raise);
+  border-radius: 5px;
+  padding: 1px 6px;
+  white-space: nowrap;
 }
 .attempts {
   font-family: var(--mono);
@@ -200,8 +225,9 @@
 .bankrow .diff {
   font-family: var(--mono);
   font-size: 11px;
-  color: var(--steel-dim);
+  color: var(--steel);
   text-transform: uppercase;
+  flex: none;
 }
 
 .how {
