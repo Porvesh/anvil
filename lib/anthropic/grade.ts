@@ -25,6 +25,12 @@ const ReviewJudgmentSchema = z.object({
       z.object({
         index: z.number().describe("Index into the provided unmatched-comments list."),
         isRealIssue: z.boolean().describe("True if this comment identifies a genuine problem NOT in the answer key (a valid extra catch); false if it's a false positive / nitpick."),
+        matchedIssueId: z
+          .string()
+          .nullable()
+          .describe(
+            "If this comment is actually describing one of the MISSED seeded issues (the reviewer identified the flaw but commented at the function signature, the block header, or another conceptual site rather than the exact line), give that issue's id. Otherwise null. Only ever cite an id from the MISSED list.",
+          ),
         note: z.string().describe("Short reason for the verdict."),
       }),
     )
@@ -117,8 +123,13 @@ export async function judgeReview(
     : "(none)";
 
   const byId = new Map(problem.answerKey.map((i) => [i.id, i]));
-  const describe = (ids: string[]) =>
-    ids.length ? ids.map((id) => `- ${byId.get(id)?.failure ?? id}`).join("\n") : "(none)";
+  // Missed issues are listed WITH their ids so the judge can cite one back as a
+  // matchedIssueId; caught issues deliberately aren't, since nothing may be
+  // re-credited to an issue the matcher already scored.
+  const describe = (ids: string[], withIds = false) =>
+    ids.length
+      ? ids.map((id) => `- ${withIds ? `[${id}] ` : ""}${byId.get(id)?.failure ?? id}`).join("\n")
+      : "(none)";
 
   const result = await anthropic.messages.parse({
     ...callParams("judgeReview"),
@@ -135,10 +146,16 @@ export async function judgeReview(
           describe(outcome.caughtIds),
           "",
           `SEEDED ISSUES MISSED (${outcome.missedIds.length}/${problem.answerKey.length}):`,
-          describe(outcome.missedIds),
+          describe(outcome.missedIds, true),
           "",
-          "Separately, the user's line comments that did NOT anchor to any seeded issue are below.",
-          "For each, decide whether it's a genuine issue we didn't seed (a valid extra catch) or a false positive / nitpick.",
+          "Below are the user's line comments that did NOT anchor to any seeded issue. For each, decide two things:",
+          "",
+          "1. Is it a genuine issue we didn't seed (a valid extra catch), or a false positive / nitpick?",
+          "2. Does it actually describe one of the MISSED issues above? The matcher works on line numbers, so a",
+          "   reviewer who correctly identified a flaw but commented at the function signature or the top of the",
+          "   block — rather than the exact line — shows up here as unmatched. If so, set matchedIssueId to that",
+          "   issue's id and it will be re-credited as caught. Require that the comment demonstrates the SAME",
+          "   insight, not merely that it sits near the same code; a vague remark on an adjacent line is not a catch.",
           "",
           "UNMATCHED COMMENTS:",
           unmatchedText,

@@ -13,6 +13,7 @@ import type {
   RunRecord,
   ScoreLine,
   SolutionFile,
+  Submission,
 } from "../types";
 import { CALLS } from "../anthropic/models";
 import { matchReviewComments } from "./matcher";
@@ -21,6 +22,42 @@ import { judgeDebug, judgeDesign, judgeReview } from "../anthropic/grade";
 /** Clamp to the 0–100 integer range. */
 function clampScore(n: number): number {
   return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+/** Debug's objective signal: the final recorded run went fully green. */
+export function testsPassedFrom(runHistory: RunRecord[]): boolean {
+  const last = runHistory.at(-1);
+  return !!last && last.failed === 0 && last.passed > 0;
+}
+
+/** Raised when a submission's mode doesn't match the problem it claims to answer. */
+export class SubmissionModeError extends Error {
+  constructor(mode: string, type: string) {
+    super(`submission mode "${mode}" does not match problem type "${type}"`);
+    this.name = "SubmissionModeError";
+  }
+}
+
+/**
+ * Dispatch a submission to the right grader.
+ *
+ * Shared by the live grade route and the re-grade script (scripts/regrade.ts),
+ * so a stored Attempt is always re-scored through exactly the path that
+ * produced it — if these drifted, a re-grade comparison would measure the drift
+ * rather than the grading change it was meant to evaluate.
+ */
+export async function gradeSubmission(problem: Problem, submission: Submission): Promise<Grade> {
+  if (submission.mode !== problem.type) {
+    throw new SubmissionModeError(submission.mode, problem.type);
+  }
+  switch (submission.mode) {
+    case "debug":
+      return gradeDebug(problem, submission.files, submission.runHistory, testsPassedFrom(submission.runHistory));
+    case "review":
+      return gradeReview(problem, submission.comments);
+    case "design":
+      return gradeDesign(problem, submission.doc);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -40,6 +77,23 @@ export async function gradeReview(
     missedIds: missed.map((i) => i.id),
   });
 
+  // The matcher decides catches by line number, which systematically
+  // under-credits reviewers who comment at the conceptual site rather than the
+  // defect (B4). The judge gets to rescue those: if it recognises an unmatched
+  // comment as describing a missed issue, that issue is re-credited as caught.
+  // Only *missed* issues can be rescued, and only once each, so this can never
+  // inflate recall past what the matcher already found.
+  const missedById = new Map(missed.map((i) => [i.id, i]));
+  const rescued = new Map<string, ReviewComment>();
+  unmatched.forEach((comment, idx) => {
+    const verdict = judgment.assessments.find((a) => a.index === idx);
+    const id = verdict?.matchedIssueId;
+    if (!id || !missedById.has(id) || rescued.has(id)) return;
+    rescued.set(id, comment);
+  });
+
+  const stillMissed = missed.filter((i) => !rescued.has(i.id));
+
   const outcomes: IssueOutcome[] = [
     ...caught.map<IssueOutcome>((c) => ({
       issueId: c.issue.id,
@@ -49,7 +103,18 @@ export async function gradeReview(
       explanation: c.issue.explanation,
       matchedOn: c.comment.body,
     })),
-    ...missed.map<IssueOutcome>((i) => ({
+    ...[...rescued].map<IssueOutcome>(([id, comment]) => {
+      const issue = missedById.get(id)!;
+      return {
+        issueId: issue.id,
+        status: "caught",
+        severity: issue.severity,
+        failure: issue.failure,
+        explanation: issue.explanation,
+        matchedOn: comment.body,
+      };
+    }),
+    ...stillMissed.map<IssueOutcome>((i) => ({
       issueId: i.id,
       status: "missed",
       severity: i.severity,
@@ -58,17 +123,21 @@ export async function gradeReview(
     })),
   ];
 
-  // Only comments the model deems NOT a real issue count as false positives;
-  // genuine extra catches are neutral (neither rewarded nor penalized in v1).
+  // A comment is a false positive only if the model judged it neither a real
+  // issue nor a rescued catch. Rescued comments were right about a seeded flaw,
+  // so penalizing them would deduct 12 points for being correct.
+  const rescuedComments = new Set(rescued.values());
   const falsePositives: FalsePositive[] = [];
   unmatched.forEach((comment, idx) => {
+    if (rescuedComments.has(comment)) return;
     const verdict = judgment.assessments.find((a) => a.index === idx);
     if (verdict && verdict.isRealIssue) return;
     falsePositives.push({ line: comment.line, body: comment.body, note: verdict?.note });
   });
 
   const total = problem.answerKey.length || 1;
-  const recall = caught.length / total;
+  const caughtCount = caught.length + rescued.size;
+  const recall = caughtCount / total;
   const caughtPoints = Math.round(recall * 100);
   const fpPenalty = falsePositives.length * FALSE_POSITIVE_PENALTY;
   const score = clampScore(caughtPoints - fpPenalty);
@@ -78,7 +147,9 @@ export async function gradeReview(
       label: "Issues caught",
       earned: caughtPoints,
       max: 100,
-      detail: `${caught.length}/${problem.answerKey.length} seeded`,
+      detail:
+        `${caughtCount}/${problem.answerKey.length} seeded` +
+        (rescued.size ? ` (${rescued.size} credited off-line)` : ""),
     },
   ];
   if (falsePositives.length > 0) {

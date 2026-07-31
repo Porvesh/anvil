@@ -90,6 +90,11 @@ const answerKeyField = z
       file: z.string().describe("path of the file the flaw lives in (debug: the buggy module; review: the diff file)"),
       lineStart: z.number().describe("1-based line within `file` (debug) / diff new-file numbering (review)"),
       lineEnd: z.number(),
+      anchors: z
+        .array(z.number())
+        .describe(
+          "Other line numbers where a strong reviewer might legitimately raise THIS flaw — the enclosing function's signature, the `with`/`try` header, the top of the handler. For flaws that are about something ABSENT (no idempotency key, no lock, no retry bound) this matters most, because there is no single line containing the bug. Empty array if the flaw really is confined to its own lines.",
+        ),
       severity: z.enum(["critical", "major", "minor"]),
       failure: z.string().describe("the concrete failure this flaw causes"),
       explanation: z.string().describe("reasoning a strong reviewer would give"),

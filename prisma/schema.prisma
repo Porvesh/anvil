@@ -54,6 +54,13 @@ model Problem {
   // Fixed-vocabulary topic tags, used by JD match-first to serve an existing
   // problem instead of paying for generation. Json (not a relation) because the
   // vocabulary is closed and set-overlap is computed in code.
+  // NOTE: on SQLite, `prisma migrate` emits this default as bare `DEFAULT []`,
+  // which SQLite reads as a quoted identifier rather than a JSON literal — every
+  // existing row ends up holding an empty string, and the client then fails any
+  // query touching the table with P2023. If you regenerate a migration that
+  // touches this column on SQLite, check the SQL for `DEFAULT []` and quote it.
+  // See migrations/20260731013500_fix_tags_default. Postgres (B6) emits jsonb
+  // defaults correctly and this stops applying.
   tags Json @default("[]") // Tag[] — see lib/tags.ts
 
   // --- community curation (spec §16 v2: "upvoting good problems") ---

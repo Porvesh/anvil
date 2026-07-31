@@ -17,11 +17,16 @@ import type { AnswerKeyIssue, ReviewComment } from "../types";
  *  Spec §17 flags this threshold as needing care to avoid false "you missed it". */
 export const ANCHOR_TOLERANCE = 1;
 
+/** How a comment came to be credited — exact hits outrank looser matches. */
+export type MatchKind = "exact" | "adjacent" | "anchor";
+
 export interface CaughtMatch {
   issue: AnswerKeyIssue;
   comment: ReviewComment;
   /** Whether the comment text also overlaps the issue's keywords (stronger signal). */
   keywordHit: boolean;
+  /** Which rule credited this match (see MatchKind). */
+  kind: MatchKind;
 }
 
 export interface ReviewMatchResult {
@@ -59,36 +64,55 @@ export function matchReviewComments(
   const missed: AnswerKeyIssue[] = [];
 
   for (const issue of answerKey) {
-    // A comment counts as anchored to this issue if it lands ON the buggy line
-    // range (exact — the user clearly flagged it), OR within ±tolerance AND its
-    // text overlaps the issue's keywords. The keyword gate on adjacency prevents
-    // an unrelated comment on a neighbouring line from being miscredited as a
-    // catch (spec §17 — avoiding frustrating false "you caught it" calls).
     const candidates = comments
-      .map((comment, idx) => ({ comment, idx }))
-      .filter(({ comment, idx }) => {
-        if (usedComments.has(idx)) return false;
-        if (withinIssue(comment.line, issue, 0)) return true;
-        return withinIssue(comment.line, issue) && hasKeywordHit(comment.body, issue.keywords);
-      })
-      .sort((a, b) => distanceToIssue(a.comment.line, issue) - distanceToIssue(b.comment.line, issue));
+      .map((comment, idx) => ({ comment, idx, kind: classify(comment, issue) }))
+      .filter((c): c is typeof c & { kind: MatchKind } => !usedComments.has(c.idx) && c.kind !== null)
+      // Prefer the strongest rule, then the closest line — so an exact hit is
+      // never displaced by a keyword-gated anchor further away.
+      .sort((a, b) => RANK[a.kind] - RANK[b.kind] || distanceToIssue(a.comment.line, issue) - distanceToIssue(b.comment.line, issue));
 
     if (candidates.length === 0) {
       missed.push(issue);
       continue;
     }
 
-    const { comment, idx } = candidates[0];
+    const { comment, idx, kind } = candidates[0];
     usedComments.add(idx);
     caught.push({
       issue,
       comment,
       keywordHit: hasKeywordHit(comment.body, issue.keywords),
+      kind,
     });
   }
 
   const unmatched = comments.filter((_, idx) => !usedComments.has(idx));
   return { caught, missed, unmatched };
+}
+
+/** Strength order: an exact line hit beats adjacency, which beats an anchor. */
+const RANK: Record<MatchKind, number> = { exact: 0, adjacent: 1, anchor: 2 };
+
+/**
+ * Decide whether (and how) a comment is credited to an issue. Null = no match.
+ *
+ * Three rules, loosest last:
+ *  - **exact** — the comment lands inside the issue's line range. No keyword
+ *    check: the user pointed straight at it, whatever words they used.
+ *  - **adjacent** — within ±1 line AND the text mentions the issue's keywords.
+ *    The keyword gate is the whole trick; without it an unrelated comment on a
+ *    neighbouring line gets miscredited, which reads as the grader inventing a
+ *    catch the user didn't make.
+ *  - **anchor** — on a generator-declared conceptual site AND keyword-gated.
+ *    Same gate, wider reach; see AnswerKeyIssue.anchors.
+ */
+function classify(comment: ReviewComment, issue: AnswerKeyIssue): MatchKind | null {
+  if (withinIssue(comment.line, issue, 0)) return "exact";
+  const keywordHit = hasKeywordHit(comment.body, issue.keywords);
+  if (!keywordHit) return null;
+  if (withinIssue(comment.line, issue)) return "adjacent";
+  if (issue.anchors?.includes(comment.line)) return "anchor";
+  return null;
 }
 
 /** Distance from a line to the nearest edge of an issue's range (0 if inside). */
