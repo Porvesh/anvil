@@ -46,7 +46,7 @@ model Problem {
   answerKey Json // AnswerKeyIssue[]: {id, lineStart, lineEnd, severity, failure, explanation, keywords}
 
   qualityScore Float? // curation/pruning signal from generation self-check
-  source       String @default("authored") // "authored" | "generated"
+  source       String @default("authored") // "authored" | "generated" | "community"
 
   // --- provenance (spec §11 / INV-11) ---
   // Which model wrote this problem, and which job produced it. Without these,
@@ -54,6 +54,9 @@ model Problem {
   // fact — "did Opus generation actually help?" needs the label on the row.
   generatorModel String? // null for hand-authored seeds
   sourceJobId    String? // GenerationJob that produced it (set from B8 onward)
+  sourceContributionId String? // metadata-only community receipt; never raw source text
+  intakeQualityScore Float? // community intake score before generation
+  sanitizationVersion String? // prompt/policy version used to derive the safe brief
 
   // --- matching (spec §13) ---
   // Fixed-vocabulary topic tags, used by JD match-first to serve an existing
@@ -84,6 +87,33 @@ model Problem {
 
   // Bank list filters on (retired, type, difficulty) and orders by rank — index it.
   @@index([retired, type, difficulty])
+}
+
+/// Metadata-only receipt for a community submission. The source question, JD,
+/// follow-ups, sanitized brief, and their hashes are deliberately absent: raw
+/// contribution text exists only in the live BYOK request.
+model Contribution {
+  id        String @id @default(cuid())
+  sessionId String
+
+  status          String // generating | accepted | duplicate | rejected
+  type            String?
+  difficulty      String?
+  seniority       String?
+  tags            Json   @default("[]")
+  qualityScore    Float?
+  rejectionCode   String?
+  problemId       String?
+  duplicateProblemId String?
+
+  provider String
+  model    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sessionId, createdAt])
+  @@index([status, createdAt])
 }
 
 /// One session's vote on a problem. The unique constraint makes voting idempotent

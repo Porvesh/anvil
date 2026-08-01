@@ -70,6 +70,8 @@ async function main() {
   let returnNoJdMatch = true;
   let operatorGenerationRequests = 0;
   let tailoredGenerationRequests = 0;
+  let contributionRequests = 0;
+  let contributionOutcome = "rejected";
   await page.route("**/api/byok", async (route) => {
     const method = route.request().method();
     if (method === "POST") {
@@ -137,6 +139,28 @@ async function main() {
       ].join("\n\n"),
     });
   });
+  await page.route("**/api/contributions", async (route) => {
+    contributionRequests += 1;
+    const payload = route.request().postDataJSON();
+    if (!payload.attested || !payload.question || !payload.sessionId) {
+      throw new Error("Contribution request omitted the privacy attestation or source context.");
+    }
+    const outcome =
+      contributionOutcome === "accepted"
+        ? { type: "done", outcome: "accepted", receiptId: "receipt-accepted", problemId: design.id, title: design.title }
+        : contributionOutcome === "duplicate"
+          ? { type: "done", outcome: "duplicate", receiptId: "receipt-duplicate", problemId: design.id, title: design.title }
+          : { type: "done", outcome: "rejected", receiptId: "receipt-rejected", message: "This needs more technical constraints before it can be added." };
+    await route.fulfill({
+      status: 200,
+      contentType: "text/event-stream",
+      body: [
+        `data: ${JSON.stringify({ type: "phase", phase: "analyzing", note: "Extracting the reusable engineering signal" })}`,
+        `data: ${JSON.stringify(outcome)}`,
+        "",
+      ].join("\n\n"),
+    });
+  });
   const sse = (text) => `data: ${JSON.stringify({ type: "delta", text })}\n\ndata: ${JSON.stringify({ type: "done" })}\n\n`;
   await page.route("**/api/hint", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: sse("Trace the boundary condition first.") }));
   await page.route("**/api/socratic", (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: sse("What invariant would prevent this failure?") }));
@@ -154,6 +178,36 @@ async function main() {
   if (leakedKey) throw new Error("BYOK plaintext leaked into browser-readable storage.");
   log("✓ provider-selectable BYOK is global and keeps plaintext out of browser storage");
 
+  // Community source text stays in component/request memory and all review outcomes render clearly.
+  await page.goto(`${BASE}/bank`, { waitUntil: "networkidle" });
+  await page.getByRole("link", { name: "Contribute" }).click();
+  await page.waitForURL(`${BASE}/contribute`);
+  const sourceMarker = "SMOKE_PRIVATE_INTERVIEW_SOURCE";
+  await page.getByPlaceholder(/Paste the question/).fill(
+    `${sourceMarker}: design a worker coordination system with explicit scale, failure recovery, and consistency constraints.`,
+  );
+  await page.getByRole("checkbox", { name: /I removed confidential information/ }).check();
+  await page.getByRole("button", { name: "Review contribution" }).click();
+  await page.getByText("Not added").waitFor();
+
+  contributionOutcome = "duplicate";
+  await page.getByRole("button", { name: "Review contribution" }).click();
+  await page.getByText("Already covered").waitFor();
+  await page.getByRole("link", { name: /Open existing problem/ }).waitFor();
+
+  contributionOutcome = "accepted";
+  await page.getByPlaceholder(/Paste the question/).fill(
+    `${sourceMarker}: design a worker coordination system with explicit scale, failure recovery, and consistency constraints.`,
+  );
+  await page.getByRole("button", { name: "Review contribution" }).click();
+  await page.getByText("Added to the bank").waitFor();
+  if (contributionRequests !== 3) throw new Error("Contribution form did not exercise all three review outcomes.");
+  const storedSource = await page.evaluate((marker) => JSON.stringify({ ...localStorage, ...sessionStorage }).includes(marker), sourceMarker);
+  if (storedSource) throw new Error("Contribution source text leaked into browser storage.");
+  await page.getByRole("link", { name: /Start problem/ }).waitFor();
+  log("✓ contribution intake covers rejected, duplicate, and accepted outcomes without browser persistence");
+
+  await page.goto(BASE, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: /Match me a problem/ }).click();
   await page.waitForURL(new RegExp(`/solve/${debug.id}$`));
   if (tailoredGenerationRequests !== 1) throw new Error("An empty JD match did not invoke tailored BYOK generation.");

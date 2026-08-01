@@ -14,6 +14,8 @@ const TIMEOUT_MS: Record<CallSite, number> = {
   socratic: 60_000,
   hint: 45_000,
   jdMatch: 30_000,
+  contributionIntake: 90_000,
+  contributionDuplicate: 60_000,
 };
 
 const RETRIES: Record<CallSite, number> = {
@@ -28,6 +30,8 @@ const RETRIES: Record<CallSite, number> = {
   socratic: 1,
   hint: 1,
   jdMatch: 2,
+  contributionIntake: 2,
+  contributionDuplicate: 1,
 };
 
 /** Per-call policy. The SDK retries only connection errors, 408/409/429 and 5xx. */
@@ -56,9 +60,18 @@ export function isAbortError(error: unknown): boolean {
 /** Convert provider/internal failures into stable, actionable public errors. */
 export function classifyModelError(
   error: unknown,
-  action: "grading" | "interviewer" | "matching" | "generation" = "grading",
+  action: "grading" | "interviewer" | "matching" | "generation" | "contribution" = "grading",
 ): ModelErrorInfo {
-  const label = action === "interviewer" ? "The interviewer" : action === "matching" ? "Job matching" : action === "generation" ? "Problem generation" : "Grading";
+  const label =
+    action === "interviewer"
+      ? "The interviewer"
+      : action === "matching"
+        ? "Job matching"
+        : action === "generation"
+          ? "Problem generation"
+          : action === "contribution"
+            ? "Contribution review"
+            : "Grading";
   if (isAbortError(error)) {
     return { code: "cancelled", message: "Request cancelled.", retryable: false, status: 499 };
   }

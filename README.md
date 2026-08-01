@@ -36,6 +36,13 @@ never the key or pasted JD. Public traffic still cannot invoke the operator-fund
 pipeline, which uses `ANTHROPIC_API_KEY` only through CLI/worker workflows or the
 bearer-protected `/api/generate` endpoint.
 
+The problem bank also accepts community interview-question contributions. The
+source question, optional JD context, and follow-ups stay request-local while the
+connected provider extracts a sanitized skill brief, applies privacy and quality
+gates, and checks for an existing equivalent. Anvil stores only a metadata receipt
+and, when the idea is novel, an original exercise that passes the normal execution
+or rubric oracle. It has no database fields for the submitted source text.
+
 ## Commands
 
 | Command | What it does |

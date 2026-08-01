@@ -1,0 +1,242 @@
+.wrap {
+  width: min(920px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 38px 0 72px;
+}
+.head {
+  margin-bottom: 22px;
+}
+.head :global(.eyebrow) {
+  letter-spacing: 0;
+}
+.head h1 {
+  margin: 8px 0 0;
+  font-family: var(--disp);
+  font-size: 30px;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+.head p {
+  max-width: 72ch;
+  margin: 8px 0 0;
+  color: var(--steel);
+  font-size: 14px;
+}
+.privacy {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--green);
+  background: rgba(87, 199, 138, 0.06);
+  color: var(--green);
+}
+.privacy div {
+  display: grid;
+  gap: 2px;
+}
+.privacy strong {
+  color: var(--parchment);
+  font-size: 13px;
+}
+.privacy span {
+  color: var(--steel);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.form {
+  padding: 20px;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  background: var(--slab);
+}
+.form label > span:first-child,
+.options label > span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--parchment-dim);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.form label em {
+  margin-left: 5px;
+  color: var(--steel-dim);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 400;
+  text-transform: uppercase;
+}
+.primaryField {
+  position: relative;
+  display: block;
+}
+.primaryField small {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--steel);
+  font-size: 11.5px;
+}
+.form textarea,
+.form select {
+  width: 100%;
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  outline: none;
+  background: var(--iron);
+  color: var(--parchment);
+  font-size: 13px;
+}
+.form textarea:focus,
+.form select:focus {
+  border-color: var(--blue-deep);
+}
+.form textarea:disabled,
+.form select:disabled {
+  opacity: 0.65;
+}
+.primaryField textarea {
+  min-height: 210px;
+  padding: 12px;
+  resize: vertical;
+  line-height: 1.55;
+}
+.characterCount {
+  position: absolute;
+  right: 9px;
+  bottom: 8px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--iron);
+  color: var(--steel-dim);
+  font-family: var(--mono);
+  font-size: 9.5px;
+}
+.optionalGrid,
+.options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+.optionalGrid textarea {
+  min-height: 112px;
+  padding: 10px;
+  resize: vertical;
+  line-height: 1.5;
+}
+.form select {
+  height: 38px;
+  padding: 0 10px;
+}
+.attestation {
+  display: flex;
+  align-items: start;
+  gap: 9px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--edge-soft);
+  color: var(--steel);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.attestation input {
+  margin-top: 2px;
+  accent-color: var(--blue);
+}
+.progress {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 16px;
+  padding: 11px 12px;
+  border: 1px solid rgba(90, 166, 230, 0.25);
+  border-radius: 6px;
+  background: rgba(90, 166, 230, 0.06);
+  color: var(--blue);
+  font-size: 12.5px;
+}
+.error {
+  margin: 14px 0 0;
+  color: var(--red);
+  font-size: 12.5px;
+}
+.result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 16px;
+  padding: 13px 14px;
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  background: var(--iron);
+}
+.result > div {
+  display: grid;
+  gap: 2px;
+}
+.result strong {
+  font-size: 13px;
+}
+.result span {
+  color: var(--steel);
+  font-size: 12px;
+}
+.result a {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--blue);
+  font-size: 12px;
+}
+.accepted {
+  border-color: rgba(87, 199, 138, 0.3);
+}
+.duplicate {
+  border-color: rgba(90, 166, 230, 0.3);
+}
+.rejected {
+  border-color: rgba(232, 181, 61, 0.3);
+}
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 18px;
+}
+.actions > a {
+  margin-right: auto;
+  color: var(--steel);
+  font-size: 12px;
+}
+
+@media (max-width: 640px) {
+  .wrap {
+    width: calc(100% - 32px);
+    padding: 28px 0 48px;
+  }
+  .head h1 {
+    font-size: 25px;
+  }
+  .form {
+    padding: 14px;
+  }
+  .optionalGrid,
+  .options {
+    grid-template-columns: 1fr;
+  }
+  .result {
+    align-items: start;
+    flex-direction: column;
+  }
+  .actions {
+    flex-wrap: wrap;
+  }
+  .actions > a {
+    flex-basis: 100%;
+    margin: 0 0 5px;
+  }
+}

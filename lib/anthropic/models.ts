@@ -191,6 +191,22 @@ export const CALLS = {
     maxTokens: 512,
     why: "constrained extraction over a fixed vocabulary; consistency > richness",
   },
+
+  /** Community intake owns the privacy and usefulness decision before generation. */
+  contributionIntake: {
+    model: "claude-sonnet-5",
+    maxTokens: 4096,
+    effort: "medium",
+    why: "privacy sanitization and interview-signal judgment gate what can become a shared asset",
+  },
+
+  /** Compare a sanitized skill brief with a small bank shortlist before spending on generation. */
+  contributionDuplicate: {
+    model: "claude-sonnet-5",
+    maxTokens: 2048,
+    effort: "low",
+    why: "semantic duplicate detection prevents user spend and near-identical bank entries",
+  },
 } as const satisfies Record<string, CallConfig>;
 
 export type CallSite = keyof typeof CALLS;

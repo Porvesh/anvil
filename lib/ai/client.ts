@@ -43,6 +43,8 @@ const OPENAI_MODELS: Record<CallSite, { model: string; effort: "low" | "medium" 
   socratic: { model: "gpt-5.6-sol", effort: "medium" },
   hint: { model: "gpt-5.6-luna", effort: "low" },
   jdMatch: { model: "gpt-5.6-luna", effort: "low" },
+  contributionIntake: { model: "gpt-5.6-terra", effort: "medium" },
+  contributionDuplicate: { model: "gpt-5.6-terra", effort: "low" },
 };
 
 export function modelFor(client: ModelClient, site: CallSite): string {
