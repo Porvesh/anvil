@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { toPublicProblem } from "@/lib/problem";
 import { analyzeJd, difficultyFor } from "@/lib/anthropic/jd";
-import { MATCH_THRESHOLD, parseTags, tagOverlap } from "@/lib/tags";
+import { isRelevantTagMatch, parseTags, tagOverlap } from "@/lib/tags";
 import { wilsonScore } from "@/lib/curation";
 import { jdMatchBodySchema } from "@/lib/validation";
 import { clientKey, rateLimit } from "@/lib/ratelimit";
@@ -41,9 +41,8 @@ export async function POST(req: NextRequest) {
   const { jd, sessionId, type, difficulty } = parsed.data;
 
   // A tagging failure degrades to "the bank has nothing for this JD" rather than
-  // an error: the client already handles an empty match list by offering the
-  // bank and a tailored generation, so a 500 here would break a flow that has a
-  // perfectly good fallback.
+  // a 500. The client keeps the user on the matching screen and says no close
+  // problem is banked; it must never disguise failure as a random recommendation.
   let tags, seniority;
   try {
     ({ tags, seniority } = await analyzeJd(client, jd, req.signal));
@@ -75,8 +74,11 @@ export async function POST(req: NextRequest) {
 
   const preferred = difficulty ?? difficultyFor(seniority);
   const ranked = candidates
-    .map((row) => ({ row, overlap: tagOverlap(tags, parseTags(row.tags)) }))
-    .filter((c) => c.overlap >= MATCH_THRESHOLD)
+    .map((row) => {
+      const problemTags = parseTags(row.tags);
+      return { row, problemTags, overlap: tagOverlap(tags, problemTags) };
+    })
+    .filter((candidate) => isRelevantTagMatch(tags, candidate.problemTags))
     .sort(
       (a, b) =>
         // Topic fit first — it's the thing the user actually asked for.
@@ -91,8 +93,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     tags,
     seniority,
-    // The best overlap achieved — the client uses this to decide whether to
-    // also kick off a tailored generation in the background.
+    // The best accepted overlap, useful for honest match-quality UI later.
     confidence: ranked[0]?.overlap ?? 0,
     matches: ranked.map((c) => ({ ...toPublicProblem(c.row), overlap: c.overlap })),
   });

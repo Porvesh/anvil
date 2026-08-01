@@ -17,7 +17,7 @@
 ```bash
 npm install
 npm run db:migrate        # create the local SQLite db
-npm run seed              # load the hand-authored problem bank
+npm run seed              # sync the hand-authored bank without deleting attempts
 cp .env.example .env
 # Set BYOK_ENCRYPTION_KEY; ANTHROPIC_API_KEY is only needed by generation/maintenance scripts.
 npm run dev               # → http://localhost:3000
@@ -41,7 +41,7 @@ the bearer-protected `/api/generate` operator endpoint.
 | `npm test` | Unit tests (grading matcher) |
 | `npm run e2e:smoke` | Deterministic browser flow with mocked model boundaries (needs `dev` running) |
 | `npm run e2e` | Live-model full loop in headless Chromium (needs `dev` running) |
-| `npm run seed` | Reset the hand-authored problem bank |
+| `npm run seed` | Insert/update the hand-authored problem bank without deleting attempts |
 | `npm run generate:bank -- --type debug --count 3` | Generate verified problems through the shared pipeline |
 | `npm run build` | Production build |
 

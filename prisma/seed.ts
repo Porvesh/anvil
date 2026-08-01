@@ -11,8 +11,9 @@
  *
  * Run with: npm run seed
  */
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import type { AnswerKeyIssue, DiffHunk, PrMeta, SolutionFile, TestSuite } from "../lib/types";
+import type { Tag } from "../lib/tags";
 
 const prisma = new PrismaClient();
 
@@ -20,6 +21,7 @@ interface SeedProblem {
   type: "debug" | "review" | "design";
   difficulty: "easy" | "medium" | "hard";
   title: string;
+  tags: Tag[];
   prompt: string;
   starterCode?: string; // design: the doc scaffold. debug uses `files`.
   files?: SolutionFile[]; // debug: the multi-file project the user edits
@@ -40,6 +42,7 @@ const debugBatcher: SeedProblem = {
   type: "debug",
   difficulty: "medium",
   title: "Webhook batcher silently drops the tail of every flush",
+  tags: ["webhooks", "error-handling", "edge-cases", "queueing", "observability"],
   prompt:
     "Support keeps hearing about missing webhook deliveries. Metrics show flush() reports fewer events sent than were queued — and when the queue holds exactly one batch worth, nothing goes out at all. No errors are logged. Find the root cause and make the suite green.",
   files: [
@@ -144,6 +147,7 @@ const debugTokenBucket: SeedProblem = {
   type: "debug",
   difficulty: "hard",
   title: "Rate limiter lets huge bursts through after idle periods",
+  tags: ["rate-limiting", "state-management", "edge-cases"],
   prompt:
     "Two symptoms from prod: (1) after a quiet night, a single client burned through hundreds of requests in one burst even though capacity is 5; (2) a fresh bucket denies the very last token it should grant — clients report being limited one request early. The clock is injected, so everything is deterministic. Make the suite green.",
   files: [
@@ -254,6 +258,7 @@ const debugLruCache: SeedProblem = {
   type: "debug",
   difficulty: "medium",
   title: "LRU cache evicts the entry you just used",
+  tags: ["caching", "state-management", "edge-cases"],
   prompt:
     "Cache hit-rate collapsed after a refactor. Traces show hot keys being evicted moments after they were read, while entries nobody has touched in hours stay resident. Two distinct things are wrong with the recency bookkeeping. Make the suite green.",
   files: [
@@ -349,6 +354,7 @@ const debugInvoice: SeedProblem = {
   type: "debug",
   difficulty: "easy",
   title: "Invoice totals ignore line-item quantities",
+  tags: ["validation", "data-modeling", "edge-cases", "error-handling"],
   prompt:
     "Finance flagged that multi-quantity orders are being under-billed: an order of 3 × $2.50 invoices at $2.50. Single-item orders and the discount math look right in spot checks. All amounts are integer cents. Make the suite green.",
   files: [
@@ -417,6 +423,7 @@ const debugRetry: SeedProblem = {
   type: "debug",
   difficulty: "medium",
   title: "Retry helper swallows real bugs and returns None",
+  tags: ["retry", "error-handling", "state-management"],
   prompt:
     "Two incidents traced back to this helper: a typo (`ValueError`) in a caller got retried three times before vanishing — the on-call saw nothing; and when a downstream stayed hard-down, callers received `None` instead of an exception and happily wrote `None` into the database. The docstring says exactly what it should do. Make the suite green.",
   files: [
@@ -508,6 +515,7 @@ const debugPayments: SeedProblem = {
   type: "debug",
   difficulty: "hard",
   title: "Payment processor double-charges on webhook replay",
+  tags: ["idempotency", "error-handling", "payments", "state-management"],
   prompt:
     "A customer was charged twice for one order. The provider's docs say delivery is at-least-once: the same event WILL occasionally arrive twice, and a delivery attempt can also die mid-flight and be redelivered. There's a `processed` set in the code, so someone thought about this — but chargebacks say otherwise. There are two distinct flaws in how idempotency is handled. Make the suite green.",
   files: [
@@ -625,6 +633,7 @@ const reviewRetry: SeedProblem = {
   type: "review",
   difficulty: "medium",
   title: "Add retry logic to payment webhook",
+  tags: ["retry", "idempotency", "error-handling", "payments", "webhooks", "distributed", "backpressure"],
   prompt:
     "We've been losing payment confirmations during brief ledger-service blips. This adds automatic retries around the ledger write so transient outages stop dropping money events. Tested locally by killing the ledger container mid-run — confirmations were delivered once it came back. Low-risk change, isolated to the handler.",
   prMeta: { number: 4192, branch: "feat/webhook-retries", additions: 6, deletions: 1, files: 1, aiGenerated: true },
@@ -686,6 +695,7 @@ const reviewCache: SeedProblem = {
   type: "review",
   difficulty: "medium",
   title: "Cache user lookups to cut database load",
+  tags: ["caching", "state-management", "memory", "concurrency", "data-modeling"],
   prompt:
     "get_user is our hottest DB query (60% of read QPS) and users barely change. This memoizes lookups in-process — repeat reads are served from memory and writes keep going straight through to the DB, so there's no consistency risk. Saw a 40x latency win on the benchmark.",
   prMeta: { number: 5310, branch: "perf/user-cache", additions: 5, deletions: 1, files: 1, aiGenerated: true },
@@ -750,6 +760,7 @@ const reviewPagination: SeedProblem = {
   type: "review",
   difficulty: "hard",
   title: "Add pagination to the orders endpoint",
+  tags: ["sql-injection", "pagination", "performance", "database", "edge-cases"],
   prompt:
     "The orders list endpoint currently returns a user's entire history in one response, which is timing out for power users with 10k+ orders. This adds standard limit/offset pagination plus a total count so the frontend can render page controls. Backwards compatible — page defaults keep old clients working.",
   prMeta: { number: 5817, branch: "feat/orders-pagination", additions: 7, deletions: 2, files: 1, aiGenerated: true },
@@ -811,10 +822,123 @@ const reviewPagination: SeedProblem = {
 // DESIGN PROBLEMS — open-ended, graded against a seeded rubric (no line anchors)
 // ---------------------------------------------------------------------------
 
+const designRobotTeleoperation: SeedProblem = {
+  type: "design",
+  difficulty: "medium",
+  title: "Design low-latency teleoperation for a robot fleet",
+  tags: [
+    "robotics",
+    "real-time",
+    "latency",
+    "networking",
+    "streaming",
+    "video",
+    "performance",
+    "observability",
+    "profiling",
+    "reliability",
+  ],
+  prompt:
+    "A company operates 500 robots across 40 customer sites. When a robot needs help, a remote operator takes control using three 1080p camera feeds and a 100 Hz command stream. Design the teleoperation system for p95 command-to-actuation under 80 ms and glass-to-glass video under 180 ms, including weak networks, unattended-site safety, observability, and fleet scale. State assumptions, build a latency/capacity budget, choose concrete protocols and components, and explain how the system degrades when conditions get bad.",
+  starterCode: `# Design: low-latency robot teleoperation
+
+## Requirements and budgets
+<!-- concurrent sessions, video bitrate, control frequency, p95/p99 latency budget -->
+
+## Session and control plane
+<!-- operator assignment, auth/lease, command ordering, robot state feedback -->
+
+## Video and network path
+<!-- capture/encode/transport/decode, relay placement, jitter and congestion handling -->
+
+## Safety and degraded operation
+<!-- dead-man switch, local watchdog, packet loss, disconnects, safe stop -->
+
+## Observability and debugging
+<!-- clock sync, per-stage timing, traces, packet/frame metrics, remote diagnostics -->
+
+## Scale and trade-offs
+<!-- fleet concurrency, regional placement, bandwidth/compute, quality vs latency -->
+`,
+  answerKey: [
+    {
+      id: "budgets",
+      lineStart: 0,
+      lineEnd: 0,
+      severity: "critical",
+      failure: "No end-to-end latency and capacity budget.",
+      explanation:
+        "Breaks the 80 ms command and 180 ms video SLOs into measurable stages (capture, encode, network, queue, decode, actuation), estimates concurrent sessions and aggregate video bandwidth, and distinguishes p50/p95/p99 and jitter rather than discussing latency as one number.",
+      keywords: ["latency budget", "p95", "p99", "jitter", "bitrate", "concurrent", "bandwidth", "milliseconds"],
+    },
+    {
+      id: "media-path",
+      lineStart: 0,
+      lineEnd: 0,
+      severity: "major",
+      failure: "Video pipeline and transport are hand-waved.",
+      explanation:
+        "Specifies camera capture, hardware encoding, codec and frame settings, WebRTC or another real-time transport, regional relay/TURN placement, bounded jitter buffers, and decode/render timing. Explains why low latency may matter more than perfect frame delivery.",
+      keywords: ["webrtc", "rtp", "codec", "hardware encode", "jitter buffer", "turn", "relay", "frame"],
+    },
+    {
+      id: "control-path",
+      lineStart: 0,
+      lineEnd: 0,
+      severity: "critical",
+      failure: "Control commands have no concrete ordering, freshness, or ownership model.",
+      explanation:
+        "Separates control from bulk media, uses sequence numbers and timestamps so stale commands are dropped, defines a single operator lease and heartbeat, prioritizes commands over telemetry, and closes the loop with robot-state feedback.",
+      keywords: ["sequence", "timestamp", "stale", "lease", "heartbeat", "priority", "feedback", "control channel"],
+    },
+    {
+      id: "network-degradation",
+      lineStart: 0,
+      lineEnd: 0,
+      severity: "major",
+      failure: "Weak and variable networks do not change system behavior.",
+      explanation:
+        "Measures bandwidth, RTT, loss, and jitter; adapts bitrate/resolution/frame rate; uses congestion control and selective redundancy appropriately; bounds queues to avoid latency buildup; and defines an explicit degraded mode instead of retrying forever.",
+      keywords: ["congestion", "packet loss", "adaptive bitrate", "resolution", "frame rate", "fec", "queue", "degraded"],
+    },
+    {
+      id: "safety",
+      lineStart: 0,
+      lineEnd: 0,
+      severity: "critical",
+      failure: "A network or operator failure can leave the robot moving unattended.",
+      explanation:
+        "Keeps safety enforcement on the robot with a dead-man control, command timeout/watchdog, speed and workspace limits, authenticated sessions, and a deterministic safe-stop or local fallback when the lease, process, or network fails.",
+      keywords: ["dead man", "watchdog", "safe stop", "timeout", "local", "limit", "auth", "fail safe"],
+    },
+    {
+      id: "diagnostics",
+      lineStart: 0,
+      lineEnd: 0,
+      severity: "major",
+      failure: "Cross-device timing failures cannot be localized after deployment.",
+      explanation:
+        "Uses synchronized clocks and correlation/session IDs, records per-stage frame and command timestamps, exposes RTT/loss/jitter/queue/drop metrics and traces, retains bounded diagnostic evidence, and supports remote health checks without flooding the weak link.",
+      keywords: ["clock sync", "timestamp", "trace", "correlation", "packet loss", "frame drop", "profil", "health"],
+    },
+    {
+      id: "fleet-scale",
+      lineStart: 0,
+      lineEnd: 0,
+      severity: "major",
+      failure: "The design works for one lab robot but not a distributed fleet.",
+      explanation:
+        "Separates signaling/session coordination from real-time media and control, places relays regionally, estimates relay bandwidth and encoder/decoder capacity at expected concurrency, isolates customers, and covers rollout, version skew, and regional failure.",
+      keywords: ["signaling", "regional", "relay", "capacity", "tenant", "rollout", "version", "failover"],
+    },
+  ],
+};
+
 const designRateLimiter: SeedProblem = {
   type: "design",
   difficulty: "hard",
   title: "Design a distributed rate limiter",
+  tags: ["rate-limiting", "distributed", "concurrency", "state-management", "backend"],
   prompt:
     "An API gateway spread across 12 regions must enforce a per-user limit of 1,000 requests/minute. Design it. The interviewer will push on the parts you gloss over — think out loud in the doc: state your assumptions, show the capacity math, argue the trade-offs, and reason through what happens when things fail.",
   starterCode: `# Design: distributed rate limiter (1,000 req/min per user, 12 regions)
@@ -889,6 +1013,7 @@ const designRateLimiter: SeedProblem = {
 };
 
 const ALL: SeedProblem[] = [
+  designRobotTeleoperation,
   designRateLimiter,
   debugBatcher,
   debugTokenBucket,
@@ -902,30 +1027,39 @@ const ALL: SeedProblem[] = [
 ];
 
 async function main() {
-  // Idempotent: replace previously-authored problems (cascades to their attempts).
-  await prisma.problem.deleteMany({ where: { source: "authored" } });
-
+  let created = 0;
+  let updated = 0;
   for (const p of ALL) {
-    await prisma.problem.create({
-      data: {
-        type: p.type,
-        language: "python",
-        difficulty: p.difficulty,
-        title: p.title,
-        prompt: p.prompt,
-        starterCode: p.starterCode ?? null,
-        files: (p.files ?? undefined) as object | undefined,
-        testSuite: (p.testSuite ?? undefined) as object | undefined,
-        diff: (p.diff ?? undefined) as object | undefined,
-        prMeta: (p.prMeta ?? undefined) as object | undefined,
-        answerKey: p.answerKey as unknown as object,
-        source: "authored",
-      },
+    const data = {
+      type: p.type,
+      language: "python",
+      difficulty: p.difficulty,
+      title: p.title,
+      tags: p.tags,
+      prompt: p.prompt,
+      starterCode: p.starterCode ?? null,
+      files: p.files ? (p.files as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
+      testSuite: p.testSuite ? (p.testSuite as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
+      diff: p.diff ? (p.diff as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
+      prMeta: p.prMeta ? (p.prMeta as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
+      answerKey: p.answerKey as unknown as Prisma.InputJsonValue,
+      source: "authored",
+    };
+    const existing = await prisma.problem.findFirst({
+      where: { source: "authored", title: p.title },
+      select: { id: true },
     });
+    if (existing) {
+      await prisma.problem.update({ where: { id: existing.id }, data });
+      updated += 1;
+    } else {
+      await prisma.problem.create({ data });
+      created += 1;
+    }
   }
 
   const count = await prisma.problem.count();
-  console.log(`Seeded ${ALL.length} authored problems. Bank now holds ${count}.`);
+  console.log(`Synced ${ALL.length} authored problems (${created} created, ${updated} updated). Bank now holds ${count}.`);
 }
 
 main()

@@ -67,6 +67,7 @@ async function main() {
   let releaseGrade;
   let byokConnected = false;
   let byokProvider = null;
+  let returnNoJdMatch = true;
   let generationRequests = 0;
   await page.route("**/api/byok", async (route) => {
     const method = route.request().method();
@@ -107,7 +108,12 @@ async function main() {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ tags: ["idempotency"], seniority: "senior", confidence: 0.2, matches: [{ id: debug.id, type: "debug" }] }),
+      body: JSON.stringify({
+        tags: ["idempotency"],
+        seniority: "senior",
+        confidence: returnNoJdMatch ? 0 : 0.8,
+        matches: returnNoJdMatch ? [] : [{ id: debug.id, type: "debug" }],
+      }),
     });
   });
   await page.route("**/api/generate", async (route) => {
@@ -131,6 +137,13 @@ async function main() {
   if (leakedKey) throw new Error("BYOK plaintext leaked into browser-readable storage.");
   log("✓ provider-selectable BYOK is global and keeps plaintext out of browser storage");
 
+  await page.getByRole("button", { name: /Match me a problem/ }).click();
+  await page.getByText(/No close problem match is banked/).waitFor();
+  if (new URL(page.url()).pathname !== "/") throw new Error("An empty JD match silently redirected to a random problem.");
+  if (generationRequests !== 0) throw new Error("An empty JD match invoked operator-funded generation.");
+  log("✓ weak JD matches stay honest instead of redirecting to a random problem");
+
+  returnNoJdMatch = false;
   await page.getByRole("button", { name: /Match me a problem/ }).click();
   await page.waitForURL(new RegExp(`/solve/${debug.id}$`));
   if (generationRequests !== 0) throw new Error("Public JD matching invoked operator-funded generation.");

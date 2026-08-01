@@ -44,7 +44,7 @@ Prisma
 
 ### Selecting a problem
 
-The home page sends a pasted JD to `POST /api/jd/match`. The selected provider's efficient model extracts tags from the fixed vocabulary in `lib/tags.ts`. Existing problems are ranked by tag overlap, difficulty fit, and Wilson score.
+The home page sends a pasted JD to `POST /api/jd/match`. The selected provider's efficient model extracts tags from the fixed vocabulary in `lib/tags.ts`. Existing problems are ranked by tag overlap, difficulty fit, and Wilson score. Explicit domains such as robotics, video, payments, or search act as relevance gates: generic systems overlap cannot satisfy a domain-specific role. If no candidate clears the threshold, the UI says so and stays put rather than redirecting to a random problem.
 
 Interactive model work requires a user-owned Anthropic or OpenAI API key. `POST /api/byok` verifies the key against the selected provider's Models API, seals the provider and key with AES-256-GCM, and returns an eight-hour HttpOnly/SameSite cookie (`Secure` on HTTPS). AI routes decrypt it only for the current request and create an uncached provider client. There is no fallback to the operator key. The plaintext is never written to Prisma, localStorage, logs, or response bodies. OpenAI Responses API calls set `store: false`.
 
@@ -94,6 +94,8 @@ The worker atomically claims jobs, reclaims stale claims, writes progress notes,
 ### `Problem`
 
 Shared metadata plus mode-specific JSON (`files`, `diff`, `testSuite`, `rubric`), hidden `answerKey`, fixed-vocabulary tags, generator provenance, curation tallies, and retirement state.
+
+Authored problems keep their tags beside their definitions in `prisma/seed.ts`. The seed command updates them by authored title and inserts missing entries without deleting attempts.
 
 ### `Attempt`
 
