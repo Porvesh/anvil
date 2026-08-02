@@ -27,7 +27,6 @@ const TYPE_BADGE_LABEL: Record<ProblemType, string> = {
 };
 
 type Sort = "top" | "new";
-const COLLAPSED_TOPIC_COUNT = 10;
 
 function scaleLabel(type: ProblemType, scale: NonNullable<ProblemSummary["scale"]>): string {
   const files = `${scale.files} file${scale.files === 1 ? "" : "s"}`;
@@ -122,13 +121,6 @@ export function Bank({ initial }: { initial: ProblemSummary[] }) {
     );
   }, [activeTags, problems]);
 
-  const displayedTags = useMemo(() => {
-    if (topicsExpanded) return availableTags;
-    const selected = availableTags.filter(([tag]) => activeTags.includes(tag));
-    const common = availableTags.filter(([tag]) => !activeTags.includes(tag)).slice(0, COLLAPSED_TOPIC_COUNT);
-    return [...selected, ...common];
-  }, [activeTags, availableTags, topicsExpanded]);
-
   const visible = useMemo(
     () =>
       problems.filter(
@@ -149,16 +141,13 @@ export function Bank({ initial }: { initial: ProblemSummary[] }) {
   }
 
   const filtered = type !== "all" || difficulty !== "all" || activeTags.length > 0 || query.trim().length > 0;
-  const hiddenTopicCount = Math.max(0, availableTags.length - displayedTags.length);
-
   return (
     <main className={styles.wrap}>
       <header className={styles.head}>
         <span className="eyebrow">Shared library</span>
         <h1 className={styles.h1}>Problem bank</h1>
         <p className={styles.intro}>
-          Verified debugging, code-review, and system-design exercises. Generated problems enter the bank only after
-          their execution or rubric checks pass.
+          Verified debugging, code-review, and system-design exercises, ready to practice.
         </p>
       </header>
 
@@ -195,38 +184,32 @@ export function Bank({ initial }: { initial: ProblemSummary[] }) {
         </div>
 
         <div className={styles.filterRow}>
-          <div className={styles.filterGroup} role="group" aria-label="Filter by track">
-            <span className={styles.controlLabel}>Track</span>
-            <div className={styles.seg}>
-              <button aria-pressed={type === "all"} className={type === "all" ? styles.on : ""} onClick={() => setType("all")}>
-                All
-              </button>
-              {PROBLEM_TYPES.map((item) => (
-                <button key={item} aria-pressed={type === item} className={type === item ? styles.on : ""} onClick={() => setType(item)}>
-                  {TYPE_LABEL[item]}
-                </button>
-              ))}
-            </div>
-          </div>
+          <label className={styles.selectControl}>
+            <select aria-label="Filter by track" value={type} onChange={(event) => setType(event.target.value as ProblemType | "all")}>
+              <option value="all">All tracks</option>
+              {PROBLEM_TYPES.map((item) => <option key={item} value={item}>{TYPE_LABEL[item]}</option>)}
+            </select>
+            <IconChevronDown />
+          </label>
 
-          <div className={styles.filterGroup} role="group" aria-label="Filter by difficulty">
-            <span className={styles.controlLabel}>Level</span>
-            <div className={styles.seg}>
-              <button aria-pressed={difficulty === "all"} className={difficulty === "all" ? styles.on : ""} onClick={() => setDifficulty("all")}>
-                All
-              </button>
-              {DIFFICULTIES.map((item) => (
-                <button
-                  key={item}
-                  aria-pressed={difficulty === item}
-                  className={difficulty === item ? styles.on : ""}
-                  onClick={() => setDifficulty(item)}
-                >
-                  {item[0].toUpperCase() + item.slice(1)}
-                </button>
-              ))}
-            </div>
-          </div>
+          <label className={styles.selectControl}>
+            <select aria-label="Filter by difficulty" value={difficulty} onChange={(event) => setDifficulty(event.target.value as Difficulty | "all")}>
+              <option value="all">All levels</option>
+              {DIFFICULTIES.map((item) => <option key={item} value={item}>{item[0].toUpperCase() + item.slice(1)}</option>)}
+            </select>
+            <IconChevronDown />
+          </label>
+
+          {availableTags.length > 0 && (
+            <button
+              className={`${styles.topicDisclosure} ${activeTags.length > 0 ? styles.topicDisclosureActive : ""}`}
+              onClick={() => setTopicsExpanded((current) => !current)}
+              aria-expanded={topicsExpanded}
+            >
+              Topics{activeTags.length > 0 ? ` · ${activeTags.length}` : ""}
+              <IconChevronDown className={topicsExpanded ? styles.chevronUp : ""} />
+            </button>
+          )}
 
           <div className={styles.resultSummary} aria-live="polite">
             <span>{loading ? "Updating…" : `${visible.length} result${visible.length === 1 ? "" : "s"}`}</span>
@@ -238,11 +221,10 @@ export function Bank({ initial }: { initial: ProblemSummary[] }) {
           </div>
         </div>
 
-        {availableTags.length > 0 && (
-          <div className={styles.topics}>
-            <span className={styles.controlLabel}>Topics</span>
+        {topicsExpanded && availableTags.length > 0 && (
+          <div className={styles.topicDrawer}>
             <div className={styles.topicList}>
-              {displayedTags.map(([tag, count]) => (
+              {availableTags.map(([tag, count]) => (
                 <button
                   key={tag}
                   className={`${styles.tag} ${activeTags.includes(tag) ? styles.tagOn : ""}`}
@@ -253,13 +235,18 @@ export function Bank({ initial }: { initial: ProblemSummary[] }) {
                   <span>{count}</span>
                 </button>
               ))}
-              {(hiddenTopicCount > 0 || topicsExpanded) && (
-                <button className={styles.topicToggle} onClick={() => setTopicsExpanded((current) => !current)}>
-                  {topicsExpanded ? "Show fewer" : `${hiddenTopicCount} more`}
-                  <IconChevronDown className={topicsExpanded ? styles.chevronUp : ""} />
-                </button>
-              )}
             </div>
+          </div>
+        )}
+
+        {!topicsExpanded && activeTags.length > 0 && (
+          <div className={styles.activeTopics}>
+            {activeTags.map((tag) => (
+              <button key={tag} onClick={() => toggleTag(tag)} title={`Remove ${tag.replaceAll("-", " ")} filter`}>
+                {tag.replaceAll("-", " ")}
+                <IconX size={12} />
+              </button>
+            ))}
           </div>
         )}
       </section>
@@ -279,9 +266,7 @@ export function Bank({ initial }: { initial: ProblemSummary[] }) {
         </div>
       ) : (
         <ul className={`${styles.list} ${loading ? styles.listLoading : ""}`} aria-busy={loading}>
-          {visible.map((problem) => {
-            const ratings = problem.upvotes + problem.downvotes;
-            return (
+          {visible.map((problem) => (
               <li key={problem.id}>
                 <Link href={`/solve/${problem.id}`} className={styles.problemRow}>
                   <span className={`${styles.type} pill ${TYPE_PILL[problem.type]}`}>{TYPE_BADGE_LABEL[problem.type]}</span>
@@ -292,13 +277,7 @@ export function Bank({ initial }: { initial: ProblemSummary[] }) {
                       {problem.timesAttempted > 0 && (
                         <span>{problem.timesAttempted} attempt{problem.timesAttempted === 1 ? "" : "s"}</span>
                       )}
-                      {ratings > 0 && <span>{ratings} rating{ratings === 1 ? "" : "s"}</span>}
                       {problem.quality === "good" && <span className={styles.good}>Community pick</span>}
-                    </span>
-                    <span className={styles.rowTopics}>
-                      {problem.tags.slice(0, 4).map((tag) => (
-                        <span key={tag}>{tag.replaceAll("-", " ")}</span>
-                      ))}
                     </span>
                   </span>
                   <span className={`${styles.difficulty} ${styles[problem.difficulty]}`}>{problem.difficulty}</span>
@@ -307,8 +286,7 @@ export function Bank({ initial }: { initial: ProblemSummary[] }) {
                   </span>
                 </Link>
               </li>
-            );
-          })}
+          ))}
         </ul>
       )}
     </main>

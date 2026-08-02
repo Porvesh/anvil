@@ -227,14 +227,16 @@ async function main() {
   await page.waitForFunction(() => new URL(location.href).searchParams.get("q") === "teleoperation");
   const tailoredRows = await page.locator("main li").count();
   if (tailoredRows < 1) throw new Error("Bank search did not find the seeded teleoperation problem.");
-  await page.getByRole("button", { name: /more$/ }).click();
-  await page.getByRole("button", { name: "Show fewer" }).waitFor();
+  await page.getByRole("button", { name: "Topics" }).click();
+  await page.getByRole("button", { name: /^robotics\s+\d+$/ }).click();
+  if (!new URL(page.url()).searchParams.getAll("tag").includes("robotics")) {
+    throw new Error("Topic filter did not update the bank URL.");
+  }
   await page.getByRole("button", { name: "Reset filters" }).click();
   if (new URL(page.url()).searchParams.has("q")) throw new Error("Reset filters left the bank query in the URL.");
-  const trackFilters = page.getByRole("group", { name: "Filter by track" });
   await Promise.all([
     page.waitForResponse((response) => response.url().includes("/api/problems?") && response.ok()),
-    trackFilters.getByRole("button", { name: "Code review" }).click(),
+    page.getByLabel("Filter by track").selectOption("review"),
   ]);
   await page.waitForFunction(() =>
     [...document.querySelectorAll("main li .pill")].every((pill) => pill.textContent?.trim() === "Review"),
