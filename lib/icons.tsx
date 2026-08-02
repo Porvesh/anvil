@@ -58,6 +58,34 @@ export function IconChevronDown({ size = 14, ...props }: IconProps) {
   );
 }
 
+/** Search within a dense list or bank. */
+export function IconSearch({ size = 15, ...props }: IconProps) {
+  return (
+    <svg {...base(size, props)}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-4-4" />
+    </svg>
+  );
+}
+
+/** Clear a field or dismiss a compact control. */
+export function IconX({ size = 15, ...props }: IconProps) {
+  return (
+    <svg {...base(size, props)}>
+      <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
+  );
+}
+
+/** Navigate into a selected item. */
+export function IconArrowRight({ size = 15, ...props }: IconProps) {
+  return (
+    <svg {...base(size, props)}>
+      <path d="M5 12h14M13 6l6 6-6 6" />
+    </svg>
+  );
+}
+
 /** Dictate a question (speech-to-text). */
 export function IconMic({ size = 16, ...props }: IconProps) {
   return (
