@@ -97,7 +97,7 @@ export async function streamModelText(
   return full;
 }
 
-export async function structuredModelOutput<T>(
+export function structuredModelOutput<T>(
   client: ModelClient,
   site: CallSite,
   schema: ZodType<T>,
@@ -106,7 +106,27 @@ export async function structuredModelOutput<T>(
   user: string,
   fallback: T,
   signal?: AbortSignal,
-): Promise<T> {
+): Promise<T>;
+export function structuredModelOutput<T>(
+  client: ModelClient,
+  site: CallSite,
+  schema: ZodType<T>,
+  schemaName: string,
+  system: string,
+  user: string,
+  fallback: null,
+  signal?: AbortSignal,
+): Promise<T | null>;
+export async function structuredModelOutput<T>(
+  client: ModelClient,
+  site: CallSite,
+  schema: ZodType<T>,
+  schemaName: string,
+  system: string,
+  user: string,
+  fallback: T | null,
+  signal?: AbortSignal,
+): Promise<T | null> {
   if (client.provider === "anthropic") {
     const result = await client.sdk.messages.parse({
       ...callParams(site),

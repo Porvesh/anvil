@@ -41,8 +41,8 @@ export async function POST(req: NextRequest) {
   const { jd, sessionId, type, difficulty } = parsed.data;
 
   // A tagging failure degrades to "the bank has nothing for this JD" rather than
-  // a 500. The client keeps the user on the matching screen and says no close
-  // problem is banked; it must never disguise failure as a random recommendation.
+  // a 500. The client may generate a tailored problem from that explicit miss;
+  // it must never disguise failure as a random recommendation.
   let tags, seniority;
   try {
     ({ tags, seniority } = await analyzeJd(client, jd, req.signal));

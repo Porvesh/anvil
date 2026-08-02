@@ -91,3 +91,12 @@ export const generateBodySchema = z.object({
   difficulty: z.enum(["easy", "medium", "hard"]).optional(),
 });
 export type GenerateBody = z.infer<typeof generateBodySchema>;
+
+/** Public BYOK generation after JD matching proves the bank has no close fit. */
+export const tailoredGenerateBodySchema = z.object({
+  sessionId: z.string().min(1).max(128),
+  jd: z.string().min(40, "Paste a bit more of the job description").max(12_000),
+  type: z.enum(["debug", "review", "design"]).optional(),
+  difficulty: z.enum(["easy", "medium", "hard"]),
+});
+export type TailoredGenerateBody = z.infer<typeof tailoredGenerateBodySchema>;

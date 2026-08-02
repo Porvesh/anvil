@@ -7,6 +7,7 @@ import type { Difficulty, ProblemSummary, ProblemType } from "@/lib/types";
 import { getSessionId } from "@/lib/session";
 import { IconShuffle } from "@/lib/icons";
 import { notifyByokRequired } from "@/lib/byokClient";
+import { streamSSE } from "@/lib/sseClient";
 import styles from "./Home.module.css";
 
 const TYPE_PILL: Record<ProblemType, string> = {
@@ -32,8 +33,8 @@ const DEFAULT_JD = `Senior Backend Engineer · Payments
 /**
  * One problem at random from a pool.
  *
- * Used where there is no better signal to choose by (an empty JD, or a match
- * that came back empty). Taking index 0 sent every such click to the same
+ * Used where there is no better signal to choose by (an empty JD). Taking
+ * index 0 sent every such click to the same
  * problem — whichever happened to sort first — so the bank looked like it had
  * one problem per type no matter how much was in it. Called only from click
  * handlers, so the randomness never reaches a render.
@@ -49,8 +50,8 @@ const QUALITY_LABEL: Record<ProblemSummary["quality"], string> = {
 };
 
 /**
- * Landing page (spec §6): JD matching, shared-bank picks, and three practice
- * tracks. User traffic never invokes the operator-funded generation pipeline.
+ * Landing page (spec §6): JD matching, shared-bank picks, and tailored BYOK
+ * generation when the bank genuinely has no relevant exercise.
  */
 export function Home({ problems }: { problems: ProblemSummary[] }) {
   const router = useRouter();
@@ -75,15 +76,18 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
 
   const [shuffling, setShuffling] = useState(false);
   const [jd, setJd] = useState(DEFAULT_JD);
-  const [matching, setMatching] = useState(false);
+  const [matchPhase, setMatchPhase] = useState<"idle" | "matching" | "generating">("idle");
+  const [generationNote, setGenerationNote] = useState<string | null>(null);
   const [genError, setGenError] = useState<string | null>(null);
+  const matching = matchPhase !== "idle";
 
   const jdTrimmed = jd.trim();
   const canMatch = jdTrimmed.length >= 40;
 
-  /** Classify with the user's key, then choose from the verified shared bank. */
+  /** Match the shared bank first; spend the user's key on generation only on a miss. */
   async function match() {
     setGenError(null);
+    setGenerationNote(null);
     if (!jdTrimmed) {
       const pool = type === "any" ? problems : problems.filter((p) => p.type === type);
       const target = pick(pool) ?? pick(problems);
@@ -91,18 +95,19 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
       return;
     }
 
-    setMatching(true);
+    setMatchPhase("matching");
     try {
       const sessionId = getSessionId();
+      const request = {
+        jd: jdTrimmed,
+        sessionId,
+        type: type === "any" ? undefined : type,
+        difficulty,
+      };
       const res = await fetch("/api/jd/match", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jd: jdTrimmed,
-          sessionId,
-          type: type === "any" ? undefined : type,
-          difficulty,
-        }),
+        body: JSON.stringify(request),
       });
       const data = await res.json();
       notifyByokRequired(data?.code);
@@ -112,13 +117,28 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
       const preferred = type === "any" ? matches : matches.filter((m) => m.type === type);
       const best = preferred[0] ?? matches[0];
       if (!best) {
-        const track = type === "any" ? "problem" : `${TYPE_LABEL[type].toLowerCase()} problem`;
-        throw new Error(`No close ${track} match is banked for this role yet. Try another track or browse the problem bank.`);
+        setMatchPhase("generating");
+        let problemId: string | null = null;
+        let generationError: string | null = null;
+        await streamSSE("/api/generate/tailored", request, {
+          onDelta: () => {},
+          onPhase: (_phase, note) => setGenerationNote(note ?? "Quality-checking the generated problem"),
+          onError: (message) => {
+            generationError = message;
+          },
+          onDone: (payload) => {
+            if (typeof payload.problemId === "string") problemId = payload.problemId;
+          },
+        });
+        if (generationError) throw new Error(generationError);
+        if (!problemId) throw new Error("Generation completed without a problem.");
+        router.push(`/solve/${problemId}`);
+        return;
       }
       router.push(`/solve/${best.id}`);
     } catch (err) {
       setGenError(err instanceof Error ? err.message : "Matching failed");
-      setMatching(false);
+      setMatchPhase("idle");
     }
   }
 
@@ -173,12 +193,24 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
               ))}
             </div>
             <button className={`btn-primary ${styles.cta}`} onClick={match} disabled={matching}>
-              {matching ? "Finding your problem…" : canMatch ? "Match me a problem →" : "Pick from the bank →"}
+              {matchPhase === "matching"
+                ? "Checking the bank…"
+                : matchPhase === "generating"
+                  ? "Generating and verifying…"
+                  : canMatch
+                    ? "Match me a problem →"
+                    : "Pick from the bank →"}
             </button>
           </div>
+          {matchPhase === "generating" && (
+            <p className={styles.genNote}>
+              No close match exists yet. Anvil is creating and quality-checking one with your key; this can take a few minutes.
+              {generationNote ? ` ${generationNote}.` : ""}
+            </p>
+          )}
           {!matching && canMatch && (
             <p className={styles.genNote}>
-              Your key classifies the role, then Anvil picks the closest verified problem from the shared bank.
+              Anvil checks the shared bank first. On a miss, your key creates a tailored, verified problem that becomes reusable.
             </p>
           )}
           {!matching && !canMatch && (

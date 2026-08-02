@@ -41,4 +41,25 @@ describe("streamSSE", () => {
 
     expect(fetchMock.mock.calls[0][1].signal).toBe(controller.signal);
   });
+
+  it("delivers generation phases and the completed problem payload", async () => {
+    const body = [
+      'data: {"type":"phase","phase":"writing","note":"Writing the problem"}\n\n',
+      'data: {"type":"done","problemId":"problem-123"}\n\n',
+    ].join("");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, { status: 200 })));
+    const phases: string[] = [];
+    let problemId: unknown;
+
+    await streamSSE("/api/generate/tailored", {}, {
+      onDelta: () => {},
+      onPhase: (phase, note) => phases.push(`${phase}:${note}`),
+      onDone: (payload) => {
+        problemId = payload.problemId;
+      },
+    });
+
+    expect(phases).toEqual(["writing:Writing the problem"]);
+    expect(problemId).toBe("problem-123");
+  });
 });
