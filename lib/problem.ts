@@ -47,7 +47,7 @@ export function toProblem(row: PrismaProblem): Problem {
     rubric: json<RubricDimension[]>(row.rubric),
     answerKey: (json<AnswerKeyIssue[]>(row.answerKey) ?? []),
     qualityScore: row.qualityScore,
-    source: row.source as "authored" | "generated",
+    source: row.source as Problem["source"],
     generatorModel: row.generatorModel,
     sourceJobId: row.sourceJobId,
     tags: parseTags(row.tags),

@@ -26,6 +26,11 @@ export interface GenerateOpts {
   /** Request-scoped for BYOK; omitted by trusted CLI/worker generation. */
   client?: ModelClient;
   signal?: AbortSignal;
+  /** Community intake uses the same oracle but distinct bank provenance. */
+  source?: "generated" | "community";
+  sourceContributionId?: string;
+  intakeQualityScore?: number;
+  sanitizationVersion?: string;
   /** GenerationJob this run belongs to, recorded on the row for provenance. */
   jobId?: string;
   /** Called with a one-line progress note per attempt (CLI logging, SSE phases). */
@@ -53,7 +58,20 @@ export interface GenerateResult {
  *    authors vulnerable code, so refusals are expected, not exceptional.
  */
 export async function generateAndPersist(prisma: PrismaClient, opts: GenerateOpts): Promise<GenerateResult | null> {
-  const { type, difficulty, topic, jd, maxAttempts = 3, jobId, onProgress, signal } = opts;
+  const {
+    type,
+    difficulty,
+    topic,
+    jd,
+    maxAttempts = 3,
+    jobId,
+    onProgress,
+    signal,
+    source = "generated",
+    sourceContributionId,
+    intakeQualityScore,
+    sanitizationVersion,
+  } = opts;
   const note = (msg: string) => onProgress?.(msg);
   const client = opts.client ?? anthropicModelClient(anthropic);
 
@@ -68,6 +86,7 @@ export async function generateAndPersist(prisma: PrismaClient, opts: GenerateOpt
     try {
       if (type === "debug") {
         const p = await generateDebug(client, difficulty, topic, jd, model, signal);
+        note(`verifying generated debug project with the execution oracle`);
 
         // The file(s) the answer key points at ARE where the user must edit — force
         // them editable so the model can't accidentally ship an unsolvable problem
@@ -103,9 +122,12 @@ export async function generateAndPersist(prisma: PrismaClient, opts: GenerateOpt
             testSuite: suite as object,
             answerKey: p.answerKey as unknown as object,
             qualityScore: check.qualityScore,
-            source: "generated",
+            source,
             generatorModel: generatedBy(),
             sourceJobId: jobId ?? null,
+            sourceContributionId: sourceContributionId ?? null,
+            intakeQualityScore: intakeQualityScore ?? null,
+            sanitizationVersion: sanitizationVersion ?? null,
             tags: parseTags(p.tags),
           },
           select: { id: true, title: true },
@@ -115,6 +137,7 @@ export async function generateAndPersist(prisma: PrismaClient, opts: GenerateOpt
 
       if (type === "design") {
         const p = await generateDesign(client, difficulty, topic, jd, model, signal);
+        note(`verifying that the generated rubric separates strong and weak answers`);
         const check = await selfCheckDesign(client, { ...p, rubric: p.rubric as AnswerKeyIssue[] }, signal);
         if (!check.ok) {
           note(`attempt ${attempt}: rejected — ${check.reason}`);
@@ -133,9 +156,12 @@ export async function generateAndPersist(prisma: PrismaClient, opts: GenerateOpt
             // would be persisting the model solution.
             answerKey: p.rubric as unknown as object,
             qualityScore: check.qualityScore,
-            source: "generated",
+            source,
             generatorModel: generatedBy(),
             sourceJobId: jobId ?? null,
+            sourceContributionId: sourceContributionId ?? null,
+            intakeQualityScore: intakeQualityScore ?? null,
+            sanitizationVersion: sanitizationVersion ?? null,
             tags: parseTags(p.tags),
           },
           select: { id: true, title: true },
@@ -144,6 +170,7 @@ export async function generateAndPersist(prisma: PrismaClient, opts: GenerateOpt
       }
 
       const p = await generateReview(client, difficulty, topic, jd, model, signal);
+      note(`verifying generated review defects and diff coordinates`);
       const check = await selfCheckReview(p);
       if (!check.ok) {
         note(`attempt ${attempt}: rejected — ${check.reason}`);
@@ -160,9 +187,12 @@ export async function generateAndPersist(prisma: PrismaClient, opts: GenerateOpt
           prMeta: p.prMeta as object,
           answerKey: p.answerKey as unknown as object,
           qualityScore: check.qualityScore,
-          source: "generated",
+          source,
           generatorModel: generatedBy(),
           sourceJobId: jobId ?? null,
+          sourceContributionId: sourceContributionId ?? null,
+          intakeQualityScore: intakeQualityScore ?? null,
+          sanitizationVersion: sanitizationVersion ?? null,
           tags: parseTags(p.tags),
         },
         select: { id: true, title: true },

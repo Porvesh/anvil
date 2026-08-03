@@ -1,6 +1,6 @@
 # Anvil architecture
 
-**Status:** implemented system as of 2026-07-31. This document describes the code that exists now. `docs/spec.md` explains the product thesis; `SCALING.md` covers capacity limits and deployment upgrades.
+**Status:** implemented system as of 2026-08-01. This document describes the code that exists now. `docs/spec.md` explains the product thesis; `SCALING.md` covers capacity limits and deployment upgrades.
 
 ## 1. Core properties
 
@@ -9,6 +9,7 @@
 3. **The answer key stays server-side.** `lib/problem.ts` is the only Prisma-row-to-public-problem mapper. It removes the key, its count, and legacy JD context.
 4. **Scoring is assembled in code.** Models supply bounded judgments; `lib/grading/index.ts` owns the numeric formula and persists the model provenance.
 5. **A bank miss creates an asset.** JD matching reuses a verified problem when possible; otherwise a streamed BYOK request generates, verifies, and banks a tailored problem. Operator batch generation remains queued on a worker.
+6. **Community source is transient.** Interview questions, JD context, and follow-ups are reduced to an abstract skill brief during the live BYOK request. Only derived receipt metadata and a separately authored, verified exercise may be persisted.
 
 ## 2. Runtime map
 
@@ -26,6 +27,7 @@ Next.js 16 App Router
   route validation (zod)
   public-problem stripping
   grading orchestration
+  contribution intake, deduplication, and generation
   model request deadlines, retries, cancellation
         |
         +---------------------> Anthropic or OpenAI API (selected user key)
@@ -51,6 +53,12 @@ Interactive model work requires a user-owned Anthropic or OpenAI API key. `POST 
 
 The tailored route holds the decrypted key only in the live request. It persists the finished problem and its fixed-vocabulary tags, but never the key or source JD. Disconnecting aborts provider work rather than moving the credential into a queue. This path requires a long-lived Node runtime with `python3`; the operator `POST /api/generate` queue remains the scalable batch path and still requires a bearer token.
 
+### Contributing a real interview question
+
+`/contribute` sends the question, optional role context, and follow-ups to `POST /api/contributions`. A first provider call extracts an abstract, de-identified skill brief and bounded quality/privacy signals. Code-owned thresholds reject credentials, confidential material, behavioral trivia, and low-signal input. A second call compares the brief with a tag-shortlisted set of verified problems. A high-confidence match links to the existing problem; otherwise the shared generator authors a new scenario from only the sanitized brief and runs its normal oracle before persistence.
+
+The route never passes source fields to Prisma, logging, or a background queue. Accepted and duplicate outcomes also clear the form fields. Rejected, duplicate, and accepted receipts contain derived metadata for operating the quality gate, not the submitted wording or a reversible hash.
+
 ### Solving
 
 - **Debug:** editable multi-file Monaco project, read-only neighbor files, Pyodide tests, run history.
@@ -75,7 +83,7 @@ The route stores `Attempt`, atomically increments `Problem.timesAttempted`, and 
 `lib/generation/index.ts` is shared by the BYOK request, CLI, and worker:
 
 ```text
-prompt/JD
+prompt/JD/sanitized contribution brief
   -> structured generation
   -> structural validation
   -> execution or rubric oracle
@@ -110,6 +118,10 @@ One row per `(problemId, sessionId)`. Vote changes and denormalized problem tall
 
 Database-backed queue containing status, retry timing, worker claim time, progress, result, and temporary JD. The JD is cleared on every terminal state.
 
+### `Contribution`
+
+Metadata-only intake receipt containing status, derived type/difficulty/seniority/tags, quality score, rejection reason, provider/model provenance, and optional links to the accepted or duplicate problem. The schema intentionally has no source question, JD, follow-up, sanitized brief, or source-hash column.
+
 The checked-in Prisma datasource is SQLite (`file:./dev.db`). `npm run db:postgres` rewrites the datasource for the PostgreSQL production path. String enums and JSON fields keep domain shapes portable, but migrations remain dialect-specific and must be regenerated/tested for PostgreSQL.
 
 ## 6. API surface
@@ -126,6 +138,7 @@ The checked-in Prisma datasource is SQLite (`file:./dev.db`). `npm run db:postgr
 | `POST /api/socratic` | Stream and persist post-grade follow-up |
 | `POST /api/jd/match` | Extract tags and match the bank |
 | `POST /api/generate/tailored` | Stream BYOK generation after a bank miss |
+| `POST /api/contributions` | Sanitize, quality-check, deduplicate, and optionally generate a community problem |
 | `POST /api/generate` | Operator-authenticated generation enqueue |
 | `GET /api/generate/[id]/stream` | Stream job phase changes |
 | `GET /api/history` | Attempts for an anonymous browser session |
@@ -141,6 +154,8 @@ All model-bound payloads have explicit zod size limits. Rate limiting is a fixed
 | Hint | 45 s | 1 |
 | Socratic | 60 s | 1 |
 | JD match | 30 s | 2 |
+| Contribution intake | 90 s | 2 |
+| Contribution duplicate check | 60 s | 1 |
 | Debug/review judge | 90 s | 2 |
 | Design judge | 120 s | 2 |
 | Generation | 8 min | 2 |
@@ -159,6 +174,7 @@ Browser abort signals flow through `fetch`, Next request signals, grading, and A
 | Socratic uses persisted ground truth | Client sends only `attemptId` and transcript |
 | Score arithmetic is not model-authored | `lib/grading/index.ts` |
 | Pasted JD is not banked or served | BYOK generation keeps it request-local; queued operator jobs clear it terminally |
+| Community source text is not retained | Request-local intake; metadata-only schema; DB column test; browser-storage smoke test |
 | User API keys stay server-side | AES-GCM HttpOnly cookie; request-scoped client; no platform-key fallback |
 | BYOK mutations resist CSRF | Exact same-origin validation + SameSite=Strict cookie |
 | Untrusted Python stays off the server | Pyodide worker in the browser |
@@ -168,7 +184,7 @@ Solve drafts contain user-authored work and conversation text in that browser's 
 ## 9. Verification
 
 - `npm test`: deterministic unit/integration tests, including isolated DB queue tests.
-- `npm run e2e:smoke`: provider-independent Chromium flow. It exercises the BYOK UI, intercepts model endpoints, and uses real pages, APIs, Monaco, localStorage, and responsive layout. Runs on every push/PR in `.github/workflows/ci.yml`.
+- `npm run e2e:smoke`: provider-independent Chromium flow. It exercises the BYOK UI, all contribution outcomes, model endpoints, real pages/APIs, Monaco, localStorage, and responsive layout. Runs on every push/PR in `.github/workflows/ci.yml`.
 - `npm run e2e`: live Chromium loop through BYOK connection, Pyodide, Anthropic grading, Socratic follow-up, curation, navigation, and history. Runs weekly/manual via `.github/workflows/live-e2e.yml`.
 - `npm run build`: production Next.js and TypeScript verification.
 

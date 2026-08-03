@@ -13,6 +13,7 @@ This document separates properties that already scale from deployment work that 
 | Grading | User-funded model call(s) + attempt write | Database write only |
 | Hint/Socratic turn | User-funded streamed model call | Connection time only |
 | Tailored generation on a bank miss | User-funded live request, once per bank asset | Amortized, but long-lived |
+| Community contribution | User-funded intake and dedupe; generation only for a novel qualified idea | Metadata writes plus optional amortized asset |
 | Operator batch generation | Separate worker, once per bank asset | Amortized |
 
 The web tier stores no live editor state and needs no session affinity. A candidate can run tests repeatedly without creating server work.
@@ -29,9 +30,10 @@ submit design     -> two strongest-tier judgments + transaction
 follow-up turn    -> one strongest-tier stream (optional)
 vote              -> one transactional upsert/tally update
 JD bank miss      -> streamed generation + oracle + one problem write
+contribution      -> intake gate + shortlist/dedupe + optional generation oracle
 ```
 
-Drafts are browser-local. BYOK credentials are encrypted in short-lived HttpOnly cookies and are not database records. Persisted attempts, grades, votes, generation jobs, and the shared bank live in the database.
+Drafts are browser-local. BYOK credentials are encrypted in short-lived HttpOnly cookies and are not database records. Community source text is request-local; only derived contribution receipts and verified original exercises persist. Attempts, grades, votes, generation jobs, receipts, and the shared bank live in the database.
 
 ## Bottlenecks in order
 
@@ -64,6 +66,7 @@ Interactive model calls are charged to each user's selected Anthropic or OpenAI 
 - User credentials expire after eight hours and never fall back to the operator key.
 - OpenAI Responses API calls disable provider-side response storage with `store: false`.
 - Public routes cannot enqueue operator-funded generation; the miss path uses only the connected user's provider.
+- Community intake uses the connected user's provider, checks a bounded tag shortlist for duplicates, and runs generation only after privacy and quality thresholds pass.
 
 At higher traffic, record per-call-site tokens, cache reads, latency, status, and retry count. Add grading backpressure before organization TPM limits become user-visible.
 
@@ -81,6 +84,8 @@ The current endpoint loads the filtered set, computes Wilson scores in applicati
 Generation jobs already live outside requests and support atomic claims, stale-claim recovery, retry backoff, and terminal JD deletion. PostgreSQL permits multiple workers to claim distinct jobs safely. Scale workers based on queue age and provider limits, not web traffic.
 
 Request-scoped BYOK generation is intentionally different: keeping the key out of storage means keeping the HTTP stream and Node process alive through generation and verification. Deploy the web tier in a Python-capable container with an execution limit above the route's 800-second ceiling. Before moving this path to short-lived serverless functions, add an ephemeral credential broker whose encrypted payload has a strict TTL and is deleted on claim/completion; do not put plaintext keys in `GenerationJob`.
+
+Community generation has the same long-request constraint. Intake and duplicate checks can complete without `python3`, but a novel accepted idea continues in the same request through the execution or rubric oracle so neither the key nor source needs durable job storage.
 
 ## Correctness under concurrency
 

@@ -86,6 +86,15 @@ export function IconArrowRight({ size = 15, ...props }: IconProps) {
   );
 }
 
+/** Add a new bank contribution. */
+export function IconPlus({ size = 15, ...props }: IconProps) {
+  return (
+    <svg {...base(size, props)}>
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
 /** Dictate a question (speech-to-text). */
 export function IconMic({ size = 16, ...props }: IconProps) {
   return (

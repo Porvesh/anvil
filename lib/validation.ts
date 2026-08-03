@@ -100,3 +100,15 @@ export const tailoredGenerateBodySchema = z.object({
   difficulty: z.enum(["easy", "medium", "hard"]),
 });
 export type TailoredGenerateBody = z.infer<typeof tailoredGenerateBodySchema>;
+
+/** Raw community text is accepted only by the request-local contribution route. */
+export const contributionBodySchema = z.object({
+  sessionId: z.string().min(1).max(128),
+  question: z.string().min(40, "Add enough detail to understand what was asked").max(12_000),
+  roleContext: z.string().max(12_000).optional(),
+  followUps: z.string().max(8_000).optional(),
+  requestedType: z.enum(["debug", "review", "design"]).optional(),
+  requestedDifficulty: z.enum(["easy", "medium", "hard"]).optional(),
+  attested: z.literal(true),
+});
+export type ContributionBody = z.infer<typeof contributionBodySchema>;

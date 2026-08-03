@@ -6,7 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import type { ProblemSummary, ProblemType, Difficulty } from "@/lib/types";
 import { DIFFICULTIES, PROBLEM_TYPES } from "@/lib/types";
 import { asTag, type Tag } from "@/lib/tags";
-import { IconArrowRight, IconChevronDown, IconSearch, IconX } from "@/lib/icons";
+import { IconArrowRight, IconChevronDown, IconPlus, IconSearch, IconX } from "@/lib/icons";
 import styles from "./Bank.module.css";
 
 const TYPE_PILL: Record<ProblemType, string> = {
@@ -144,11 +144,17 @@ export function Bank({ initial }: { initial: ProblemSummary[] }) {
   return (
     <main className={styles.wrap}>
       <header className={styles.head}>
-        <span className="eyebrow">Shared library</span>
-        <h1 className={styles.h1}>Problem bank</h1>
-        <p className={styles.intro}>
-          Verified debugging, code-review, and system-design exercises, ready to practice.
-        </p>
+        <div>
+          <span className="eyebrow">Shared library</span>
+          <h1 className={styles.h1}>Problem bank</h1>
+          <p className={styles.intro}>
+            Verified debugging, code-review, and system-design exercises, ready to practice.
+          </p>
+        </div>
+        <Link href="/contribute" className={styles.contributeAction}>
+          <IconPlus />
+          Contribute
+        </Link>
       </header>
 
       <section className={styles.filterPanel} aria-label="Problem bank filters">
