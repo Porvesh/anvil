@@ -16,8 +16,8 @@ import type {
   Submission,
 } from "../types";
 import { modelFor, type ModelClient } from "../ai/client";
-import { matchReviewComments } from "./matcher";
-import { judgeDebug, judgeDesign, judgeReview } from "../anthropic/grade";
+import { matchReviewComments, type ReviewMatchResult } from "./matcher";
+import { judgeDebug, judgeDesign, judgeReview, type ReviewJudgment } from "../anthropic/grade";
 
 /** Clamp to the 0–100 integer range. */
 function clampScore(n: number): number {
@@ -78,12 +78,31 @@ export async function gradeReview(
   comments: ReviewComment[],
   signal?: AbortSignal,
 ): Promise<Grade> {
-  const { caught, missed, unmatched } = matchReviewComments(comments, problem.answerKey);
-  const judgment = await judgeReview(client, problem, unmatched, {
-    caughtIds: caught.map((c) => c.issue.id),
-    missedIds: missed.map((i) => i.id),
+  const match = matchReviewComments(comments, problem.answerKey);
+  const judgment = await judgeReview(client, problem, match.unmatched, {
+    caughtIds: match.caught.map((c) => c.issue.id),
+    missedIds: match.missed.map((i) => i.id),
   }, signal);
 
+  return assembleReviewGrade(problem, match, judgment, modelFor(client, "judgeReview"));
+}
+
+/**
+ * Turn a match plus a judgment into a score.
+ *
+ * Split out from `gradeReview` because this half is pure: given the same
+ * matcher output and the same judgment it always produces the same number, with
+ * no provider involved. That makes the formula directly testable, and it lets
+ * the keyless demo (lib/demo) show a real score — the matcher and this
+ * arithmetic run for real against the bank's answer key, and only the
+ * qualitative judgment is scripted.
+ */
+export function assembleReviewGrade(
+  problem: Problem,
+  { caught, missed, unmatched }: ReviewMatchResult,
+  judgment: ReviewJudgment,
+  graderModel?: string,
+): Grade {
   // The matcher decides catches by line number, which systematically
   // under-credits reviewers who comment at the conceptual site rather than the
   // defect (B4). The judge gets to rescue those: if it recognises an unmatched
@@ -175,7 +194,7 @@ export async function gradeReview(
     outcomes,
     falsePositives,
     breakdown,
-    graderModel: modelFor(client, "judgeReview"),
+    graderModel,
   };
 }
 

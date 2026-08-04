@@ -1,0 +1,50 @@
+/* Mirrors the provider-key button next to it: same height, same affordance,
+   same dot convention (amber = not set up, green = active). */
+.account {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  color: var(--parchment-dim);
+  background: var(--slab);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.account:hover {
+  border-color: var(--steel-dim);
+  color: var(--parchment);
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--steel-dim);
+}
+.signedIn .dot {
+  background: var(--green);
+  box-shadow: 0 0 0 3px rgba(87, 199, 138, 0.1);
+}
+
+@media (max-width: 720px) {
+  .label {
+    display: none;
+  }
+  .account {
+    width: 36px;
+    justify-content: center;
+    gap: 0;
+    padding: 0;
+    position: relative;
+  }
+  .dot {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 6px;
+    height: 6px;
+    box-shadow: 0 0 0 2px var(--slab);
+  }
+}

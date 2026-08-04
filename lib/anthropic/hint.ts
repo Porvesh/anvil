@@ -5,6 +5,7 @@
  * colleague and physically can't leak ground truth.
  */
 import { ensureUserFirst, sseFromMessages, type ChatTurn } from "./stream";
+import { CUE_INSTRUCTIONS } from "../interview";
 import type { ModelClient } from "../ai/client";
 import type { ChatMessage, PublicProblem, SolutionFile } from "../types";
 
@@ -18,6 +19,9 @@ const SYSTEM_ROLE = [
   "- NEVER state the exact bug outright and NEVER provide corrected code.",
   "- 1-3 sentences. Use backticks for code identifiers.",
 ].join("\n");
+
+/** Interview mode: the interviewer speaks without being asked. */
+export type InterviewCueKind = keyof typeof CUE_INSTRUCTIONS;
 
 export interface HintContext {
   /** debug: the user's current multi-file project. */
@@ -66,9 +70,14 @@ export function streamHintSSE(
   history: ChatMessage[],
   userMessage?: string,
   signal?: AbortSignal,
+  cue?: InterviewCueKind,
 ): ReadableStream<Uint8Array> {
   const turns: ChatTurn[] = toTurns(history);
   if (userMessage) turns.push({ role: "user", content: userMessage });
+  // A cue is the interviewer prompting themselves, so it enters as the final
+  // user turn rather than as system text: the model has to answer it, and the
+  // instruction must not outrank the standing no-spoilers rules above it.
+  if (cue) turns.push({ role: "user", content: CUE_INSTRUCTIONS[cue] });
   const messages = ensureUserFirst(turns, KICKOFF);
   return sseFromMessages(client, "hint", buildSystem(problem, ctx), messages, undefined, signal);
 }

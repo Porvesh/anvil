@@ -1,0 +1,64 @@
+.gate {
+  display: grid;
+  place-items: start center;
+  padding: 44px 20px;
+  overflow-y: auto;
+}
+.card {
+  width: min(560px, 100%);
+  padding: 26px;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--slab);
+}
+.mark {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 16px;
+  border: 1px solid rgba(232, 181, 61, 0.35);
+  border-radius: 9px;
+  background: rgba(232, 181, 61, 0.08);
+  color: var(--amber);
+}
+.card h2 {
+  margin: 7px 0 0;
+  font-family: var(--disp);
+  font-size: 24px;
+  letter-spacing: -0.01em;
+}
+.lead {
+  margin: 10px 0 0;
+  color: var(--steel);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.rules {
+  display: grid;
+  gap: 11px;
+  margin: 20px 0 0;
+  padding: 16px;
+  border: 1px solid var(--edge-soft);
+  border-radius: 8px;
+  background: var(--iron);
+  list-style: none;
+}
+.rules li {
+  color: var(--steel);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.rules strong {
+  color: var(--parchment);
+  font-weight: 600;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 22px;
+}

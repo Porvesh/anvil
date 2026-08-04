@@ -1,30 +1,32 @@
-import { NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { ownerFilter, resolveOwner } from "@/lib/auth/identity";
 import type { Grade, ProblemType, Difficulty } from "@/lib/types";
 
 export const runtime = "nodejs";
 
-/** Attempts are cheap to render and a session accumulates slowly; cap anyway. */
+/** Attempts are cheap to render and one owner accumulates slowly; cap anyway. */
 const MAX_ATTEMPTS = 100;
 
 /**
- * GET /api/history?sessionId= — this browser's own attempt history.
+ * GET /api/history?sessionId= — the caller's own attempt history.
  *
- * Attempts have always been written with a sessionId (lib/session.ts) but had no
- * read path, so the History nav entry had nowhere to go. Scoped strictly to the
- * caller's session id: attempts carry submitted code and a graded transcript, so
- * this must never become a way to read someone else's work. The id is an
- * unguessable client-generated uuid, which is the same bar as the rest of the
- * anonymous-session design (spec §14) — there is no login to check it against.
+ * Scoped strictly to the caller: attempts carry submitted code and a graded
+ * transcript, so this must never become a way to read someone else's work. Who
+ * "the caller" is depends on the account cookie — signed in, it is every attempt
+ * the account owns across devices; anonymous, only this browser's unclaimed ones
+ * (see lib/auth/identity.ts). The anonymous id is an unguessable client-generated
+ * uuid, which is the bar the rest of the anonymous design sets (spec §14).
  */
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   const sessionId = new URL(req.url).searchParams.get("sessionId");
-  if (!sessionId) {
+  const owner = resolveOwner(req, sessionId ?? "");
+  if (!owner.userId && !sessionId) {
     return NextResponse.json({ error: "sessionId is required" }, { status: 400 });
   }
 
   const rows = await prisma.attempt.findMany({
-    where: { sessionId },
+    where: ownerFilter(owner),
     orderBy: { createdAt: "desc" },
     take: MAX_ATTEMPTS,
     select: {
@@ -57,5 +59,8 @@ export async function GET(req: Request) {
     };
   });
 
-  return NextResponse.json({ attempts });
+  return NextResponse.json(
+    { attempts, signedIn: Boolean(owner.userId), email: owner.email },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }

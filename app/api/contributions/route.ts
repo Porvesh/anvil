@@ -1,5 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { byokRequiredResponse, isSameOrigin, userModelFromRequest } from "@/lib/anthropic/byok";
+import { byokRequiredResponse, userModelFromRequest } from "@/lib/anthropic/byok";
+import { ownerColumns, resolveOwner } from "@/lib/auth/identity";
+import { isSameOrigin } from "@/lib/http/origin";
 import { classifyModelError, isAbortError } from "@/lib/anthropic/reliability";
 import { SSE_HEADERS } from "@/lib/anthropic/stream";
 import {
@@ -42,6 +44,9 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid contribution", details: parsed.error.flatten() }, { status: 400, headers: NO_STORE });
   }
+  // Receipts are stamped with the account when there is one, so a contributor's
+  // history follows them off this browser like their attempts do.
+  const owner = resolveOwner(req, parsed.data.sessionId);
   const budget = dailyLimit(`contribution:${parsed.data.sessionId}`);
   if (!budget.ok) {
     return NextResponse.json(
@@ -64,7 +69,7 @@ export async function POST(req: NextRequest) {
         if (decision.rejectionCode) {
           const receipt = await prisma.contribution.create({
             data: {
-              sessionId: parsed.data.sessionId,
+              ...ownerColumns(owner),
               status: "rejected",
               type: intake.type,
               difficulty: intake.difficulty,
@@ -109,7 +114,7 @@ export async function POST(req: NextRequest) {
           const existing = candidates.find((candidate) => candidate.id === duplicate.problemId)!;
           const receipt = await prisma.contribution.create({
             data: {
-              sessionId: parsed.data.sessionId,
+              ...ownerColumns(owner),
               status: "duplicate",
               type: intake.type,
               difficulty: intake.difficulty,
@@ -135,7 +140,7 @@ export async function POST(req: NextRequest) {
 
         const receipt = await prisma.contribution.create({
           data: {
-            sessionId: parsed.data.sessionId,
+            ...ownerColumns(owner),
             status: "generating",
             type: intake.type,
             difficulty: intake.difficulty,

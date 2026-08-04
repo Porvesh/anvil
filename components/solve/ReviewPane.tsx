@@ -63,6 +63,7 @@ export function ReviewPane({
   comments,
   onAddComment,
   onRemoveComment,
+  readOnly = false,
 }: {
   title: string;
   prompt: string;
@@ -71,6 +72,11 @@ export function ReviewPane({
   comments: ReviewComment[];
   onAddComment: (file: string, line: number, body: string) => void;
   onRemoveComment: (index: number) => void;
+  /**
+   * Render an already-submitted review: comments show, but lines don't invite
+   * new ones and existing ones can't be removed. Used by the recorded demo.
+   */
+  readOnly?: boolean;
 }) {
   // Keyed by file as well as line: line numbers restart in every file, so a
   // line-only key opened the composer on the same-numbered line of every file at
@@ -142,7 +148,11 @@ export function ReviewPane({
             {comments.length} {comments.length === 1 ? "comment" : "comments"} left
           </span>
         </div>
-        <div className={styles.guidance}>Click any line to comment. Review it like you'd review a teammate's PR.</div>
+        <div className={styles.guidance}>
+          {readOnly
+            ? "A submitted review. The comments below are what the reviewer left."
+            : "Click any line to comment. Review it like you'd review a teammate's PR."}
+        </div>
       </div>
 
       {diff.map((hunk) => {
@@ -164,9 +174,14 @@ export function ReviewPane({
           </div>
           <div className={styles.diff}>
             {hunk.lines.map((line, idx) => {
-              const commentable = line.lineNo !== null;
-              const threads = commentable ? commentsFor(hunk.file, line.lineNo!) : [];
-              const hasComment = commentable && commented.has(`${hunk.file}:${line.lineNo}`);
+              // Deleted lines have no new-file number, so they can neither
+              // carry a comment nor anchor one. `commentable` additionally
+              // requires the pane to be editable — but existing threads must
+              // still render read-only, so they key off `numbered`.
+              const numbered = line.lineNo !== null;
+              const commentable = numbered && !readOnly;
+              const threads = numbered ? commentsFor(hunk.file, line.lineNo!) : [];
+              const hasComment = numbered && commented.has(`${hunk.file}:${line.lineNo}`);
               const isOpen = open?.file === hunk.file && open?.line === line.lineNo;
               const gap = gaps.get(idx);
               return (
@@ -200,9 +215,11 @@ export function ReviewPane({
                             </span>
                           </div>
                           {c.body}
-                          <button className={styles.remove} onClick={() => onRemoveComment(i)} aria-label="Remove comment">
-                            remove
-                          </button>
+                          {!readOnly && (
+                            <button className={styles.remove} onClick={() => onRemoveComment(i)} aria-label="Remove comment">
+                              remove
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>

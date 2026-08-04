@@ -168,6 +168,12 @@ export function Home({ problems }: { problems: ProblemSummary[] }) {
           Anvil plants every flaw itself, so it knows exactly what you caught and what you walked past — then spends the
           follow-up on the difference.
         </p>
+        {/* Solving needs your own provider key. Reading a finished attempt does
+            not, so the claim above is checkable before anyone signs up for
+            anything. */}
+        <Link href="/demo" className={styles.heroDemo}>
+          See a graded example first — no key needed →
+        </Link>
       </section>
 
       <div className={styles.starter}>

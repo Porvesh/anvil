@@ -23,6 +23,7 @@ export function InterviewerPanel({
   suggestions = [],
   placeholder = "Ask the interviewer…",
   className,
+  readOnly = false,
 }: {
   role: string;
   messages: ChatMessage[];
@@ -32,6 +33,12 @@ export function InterviewerPanel({
   suggestions?: string[];
   placeholder?: string;
   className?: string;
+  /**
+   * Render the transcript without a composer. Used by the recorded demo, where
+   * the conversation already happened and an input box would promise a reply
+   * that cannot come — the viewer has no API key connected.
+   */
+  readOnly?: boolean;
 }) {
   const [draft, setDraft] = useState("");
   const chatRef = useRef<HTMLDivElement>(null);
@@ -124,6 +131,12 @@ export function InterviewerPanel({
         )}
       </div>
 
+      {readOnly ? (
+        <div className={styles.chatbox}>
+          <div className={styles.hint}>{footer}</div>
+        </div>
+      ) : (
+        <>
       {suggestions.length > 0 && (
         <div className={styles.suggestions}>
           {suggestions.map((s) => (
@@ -178,6 +191,8 @@ export function InterviewerPanel({
         </div>
         <div className={styles.hint}>{voice.listening ? "Speak now — I'll send when you pause." : footer}</div>
       </div>
+        </>
+      )}
     </div>
   );
 }

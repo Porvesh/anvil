@@ -89,12 +89,67 @@ model Problem {
   @@index([retired, type, difficulty])
 }
 
+/// An account (spec §14 extension: anonymous first, optional identity later).
+///
+/// Anvil starts anonymous and stays usable that way — the account exists only to
+/// outlive one browser's localStorage, so the row is deliberately thin: an email
+/// to prove ownership and nothing else. There is no password column because
+/// there are no passwords; sign-in is a single-use emailed token (LoginToken).
+///
+/// Work is linked by nullable `userId` beside the existing `sessionId` rather
+/// than replacing it. That is what makes the anonymous->account merge a column
+/// update instead of a migration, and it keeps every anonymous row valid.
+model User {
+  id    String @id @default(cuid())
+  /// Stored lowercased/trimmed; the unique index is the account identity.
+  email String @unique
+
+  createdAt   DateTime  @default(now())
+  lastLoginAt DateTime?
+
+  attempts      Attempt[]
+  votes         Vote[]
+  contributions Contribution[]
+  loginTokens   LoginToken[]
+}
+
+/// A single-use, short-lived sign-in link.
+///
+/// Only the SHA-256 of the emailed token is stored: a leaked database must not
+/// hand over working sign-in links. `consumedAt` (rather than a delete) makes
+/// replay detectable and keeps the row for the small amount of operational
+/// history a login flow needs.
+///
+/// `claimSessionId` carries the anonymous browser id captured when the link was
+/// requested, so consuming the token can adopt that browser's existing attempts
+/// and votes into the account. It is the user's own client-generated uuid, not
+/// personal data, and it is cleared on consumption.
+model LoginToken {
+  id        String @id @default(cuid())
+  tokenHash String @unique
+
+  email  String
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  claimSessionId String?
+
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([email, createdAt])
+  @@index([expiresAt])
+}
+
 /// Metadata-only receipt for a community submission. The source question, JD,
 /// follow-ups, sanitized brief, and their hashes are deliberately absent: raw
 /// contribution text exists only in the live BYOK request.
 model Contribution {
   id        String @id @default(cuid())
   sessionId String
+  userId    String?
+  user      User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   status          String // generating | accepted | duplicate | rejected
   type            String?
@@ -114,6 +169,7 @@ model Contribution {
 
   @@index([sessionId, createdAt])
   @@index([status, createdAt])
+  @@index([userId, createdAt])
 }
 
 /// One session's vote on a problem. The unique constraint makes voting idempotent
@@ -124,11 +180,23 @@ model Vote {
   problemId String
   problem   Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
   sessionId String
+  /// Set once the voter signs in. Deleting an account keeps the vote (it is a
+  /// curation signal about the problem, not personal content) and only detaches
+  /// it, which is why this is SetNull rather than Cascade.
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   value     Int // +1 upvote, -1 downvote
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([problemId, sessionId])
+  /// One vote per problem per *account*, across every device they sign in from.
+  /// Both SQLite and PostgreSQL treat NULLs as distinct in a unique index, so
+  /// this constrains signed-in voters only and leaves anonymous rows to the
+  /// session constraint above. lib/auth/merge.ts relies on that: adopting a
+  /// browser's votes must not create a second row for a problem the account has
+  /// already voted on.
+  @@unique([problemId, userId])
   @@index([problemId])
 }
 
@@ -184,6 +252,11 @@ model Attempt {
   problemId String
   problem   Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
   sessionId String
+  /// Set when the solver was signed in, or backfilled by the sign-in merge.
+  /// Cascade: an attempt holds the user's own submitted code and graded
+  /// transcript, so deleting the account must take it with them.
+  userId    String?
+  user      User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   submission Json // debug: {files}; review: ReviewComment[]; design: {doc}
   runHistory Json? // debug: RunRecord[] {passed, failed, output, at}
@@ -194,4 +267,7 @@ model Attempt {
 
   @@index([sessionId])
   @@index([problemId])
+  // History reads newest-first for one owner; both owner columns need the sort.
+  @@index([userId, createdAt])
+  @@index([sessionId, createdAt])
 }

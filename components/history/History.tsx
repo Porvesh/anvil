@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getSessionId } from "@/lib/session";
+import { SIGN_IN_MESSAGES, type SignInStatus } from "@/lib/authStatus";
 import type { ProblemType, Difficulty } from "@/lib/types";
 import styles from "./History.module.css";
 
@@ -45,28 +46,38 @@ function when(iso: string): string {
 }
 
 /**
- * This browser's attempt history — the destination the "History" nav entry
- * always advertised.
+ * The caller's attempt history — the destination the "History" nav entry
+ * always advertised, and the surface an account exists to protect.
  *
- * Fetched on the client because the session id lives in localStorage (spec §14:
- * no login to start), so the server has no way to know whose history to render.
- * The trade is a loading state on first paint, which is why the empty and error
- * cases are distinct: "you haven't attempted anything" and "we couldn't load it"
- * lead to completely different next actions.
+ * Fetched on the client because the anonymous session id lives in localStorage
+ * (spec §14: no login to start), so the server cannot know whose history to
+ * render until the browser tells it. The trade is a loading state on first
+ * paint, which is why the empty and error cases are distinct: "you haven't
+ * attempted anything" and "we couldn't load it" lead to different next actions.
+ *
+ * The response says whether the request was authenticated, so this renders
+ * either "saved to your account" or the offer to make it durable — without a
+ * second round trip to /api/auth/session.
  */
-export function History() {
+export function History({ signInStatus }: { signInStatus?: SignInStatus | null }) {
   const [rows, setRows] = useState<HistoryRow[] | null>(null);
+  const [account, setAccount] = useState<{ signedIn: boolean; email: string | null }>({
+    signedIn: false,
+    email: null,
+  });
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/history?sessionId=${encodeURIComponent(getSessionId())}`)
+    fetch(`/api/history?sessionId=${encodeURIComponent(getSessionId())}`, { cache: "no-store" })
       .then((r) => {
         if (!r.ok) throw new Error(String(r.status));
         return r.json();
       })
       .then((data) => {
-        if (!cancelled) setRows(data.attempts ?? []);
+        if (cancelled) return;
+        setRows(data.attempts ?? []);
+        setAccount({ signedIn: Boolean(data.signedIn), email: data.email ?? null });
       })
       .catch(() => {
         if (!cancelled) setFailed(true);
@@ -87,10 +98,33 @@ export function History() {
         <span className="eyebrow">Your attempts</span>
         <h1 className={styles.h1}>What you&apos;ve worked through</h1>
         <p className={styles.sub}>
-          Kept on this browser under an anonymous id — no account, and nothing here is shared with the bank
-          beyond the problem ratings you chose to give.
+          {account.signedIn
+            ? "Saved to your account, so it survives this browser and follows you to another machine. Nothing here is shared with the bank beyond the problem ratings you chose to give."
+            : "Kept on this browser under an anonymous id — nothing here is shared with the bank beyond the problem ratings you chose to give."}
         </p>
       </header>
+
+      {signInStatus === "ok" && (
+        <div className={`${styles.notice} ${styles.noticeGood}`} role="status">
+          <strong>{SIGN_IN_MESSAGES.ok.title}</strong>
+          <span>{SIGN_IN_MESSAGES.ok.detail}</span>
+        </div>
+      )}
+
+      {/* Only offered once there is something to lose. Asking a first-time
+          visitor to create an account before they have any history would be
+          asking for a signup to protect nothing. */}
+      {!account.signedIn && rows !== null && rows.length > 0 && (
+        <div className={styles.notice}>
+          <div>
+            <strong>This history lives in one browser</strong>
+            <span>Clearing site data or switching machines loses it. Signing in keeps it.</span>
+          </div>
+          <Link className={styles.noticeAction} href="/signin">
+            Sign in →
+          </Link>
+        </div>
+      )}
 
       {rows !== null && rows.length > 0 && (
         <div className={styles.stats}>

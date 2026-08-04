@@ -9,6 +9,16 @@ interface DraftBase {
   problemId: string;
   updatedAt: number;
   chat: ChatMessage[];
+  /**
+   * Interview mode's wall clock, as an absolute deadline.
+   *
+   * Stored so a refresh or an accidental navigation does not hand the candidate
+   * a fresh 45 minutes — the clock is the constraint, and one that resets on
+   * F5 is not one. Absent for ordinary practice drafts, which is also what
+   * every draft written before interview mode existed looks like, so v1 drafts
+   * stay readable.
+   */
+  interviewDeadline?: number;
 }
 
 export type SolveDraft =
@@ -97,7 +107,8 @@ export function parseSolveDraft(
     now - raw.updatedAt > DRAFT_MAX_AGE_MS ||
     raw.updatedAt > now + 60_000 ||
     !Array.isArray(raw.chat) ||
-    !raw.chat.every(chatMessage)
+    !raw.chat.every(chatMessage) ||
+    !(raw.interviewDeadline === undefined || typeof raw.interviewDeadline === "number")
   ) {
     return null;
   }
@@ -107,6 +118,7 @@ export function parseSolveDraft(
     problemId,
     updatedAt: raw.updatedAt,
     chat: raw.chat,
+    interviewDeadline: raw.interviewDeadline,
   } as const;
 
   if (mode === "debug") {

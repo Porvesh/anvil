@@ -1,78 +1,49 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import { createSealedCodec } from "../crypto/sealed";
+import { credentialCookieOptions } from "../http/cookies";
 import { createUserModelClient, type AiProvider, type ModelClient } from "../ai/client";
 
 export const BYOK_COOKIE = "anvil_byok";
 export const BYOK_MAX_AGE_SECONDS = 8 * 60 * 60;
-const VERSION = "v2";
 
 interface ByokPayload {
   provider: AiProvider;
   apiKey: string;
-  expiresAt: number;
 }
 
-function encryptionKey(): Buffer {
-  const secret = process.env.BYOK_ENCRYPTION_KEY;
-  if (!secret || secret.length < 32) {
-    throw new Error("BYOK_ENCRYPTION_KEY must be at least 32 characters");
-  }
-  return createHash("sha256").update(secret, "utf8").digest();
+function isByokPayload(value: unknown): value is ByokPayload {
+  if (typeof value !== "object" || value === null) return false;
+  const payload = value as Record<string, unknown>;
+  return (
+    typeof payload.apiKey === "string" &&
+    (payload.provider === "anthropic" || payload.provider === "openai")
+  );
 }
 
-function encode(value: Buffer): string {
-  return value.toString("base64url");
-}
-
-function decode(value: string): Buffer {
-  return Buffer.from(value, "base64url");
-}
+/**
+ * The provider key is sealed rather than stored: it is the user's money, so it
+ * exists only as ciphertext in their own browser and as plaintext inside the
+ * single request that spends it.
+ */
+const codec = createSealedCodec<ByokPayload>({
+  version: "v3",
+  secretEnv: ["BYOK_ENCRYPTION_KEY"],
+  maxAgeSeconds: BYOK_MAX_AGE_SECONDS,
+  isPayload: isByokPayload,
+});
 
 /** Seal a key into authenticated ciphertext suitable for an HttpOnly cookie. */
-export function sealApiKey(
-  provider: AiProvider,
-  apiKey: string,
-  now = Date.now(),
-): { value: string; expiresAt: number } {
-  const expiresAt = now + BYOK_MAX_AGE_SECONDS * 1000;
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", encryptionKey(), iv);
-  cipher.setAAD(Buffer.from(VERSION));
-  const plaintext = Buffer.from(JSON.stringify({ provider, apiKey, expiresAt } satisfies ByokPayload), "utf8");
-  const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
-  return {
-    value: [VERSION, encode(iv), encode(ciphertext), encode(cipher.getAuthTag())].join("."),
-    expiresAt,
-  };
+export function sealApiKey(provider: AiProvider, apiKey: string, now = Date.now()) {
+  return codec.seal({ provider, apiKey }, now);
 }
 
 /** Invalid, tampered, expired, or old-version cookies are treated as absent. */
-export function unsealApiKey(value: string, now = Date.now()): ByokPayload | null {
-  try {
-    const [version, ivText, ciphertextText, tagText, extra] = value.split(".");
-    if (version !== VERSION || !ivText || !ciphertextText || !tagText || extra) return null;
-    const decipher = createDecipheriv("aes-256-gcm", encryptionKey(), decode(ivText));
-    decipher.setAAD(Buffer.from(VERSION));
-    decipher.setAuthTag(decode(tagText));
-    const plaintext = Buffer.concat([decipher.update(decode(ciphertextText)), decipher.final()]).toString("utf8");
-    const payload = JSON.parse(plaintext) as Partial<ByokPayload>;
-    if (
-      typeof payload.apiKey !== "string" ||
-      (payload.provider !== "anthropic" && payload.provider !== "openai") ||
-      typeof payload.expiresAt !== "number" ||
-      payload.expiresAt <= now ||
-      payload.expiresAt > now + BYOK_MAX_AGE_SECONDS * 1000 + 60_000
-    ) {
-      return null;
-    }
-    return payload as ByokPayload;
-  } catch {
-    return null;
-  }
+export function unsealApiKey(value: string, now = Date.now()) {
+  return codec.unseal(value, now);
 }
 
-export function readByokSession(req: NextRequest): ByokPayload | null {
+export function readByokSession(req: NextRequest) {
   const value = req.cookies.get(BYOK_COOKIE)?.value;
   return value ? unsealApiKey(value) : null;
 }
@@ -83,25 +54,14 @@ export function userModelFromRequest(req: NextRequest): ModelClient | null {
   return session ? createUserModelClient(session.provider, session.apiKey) : null;
 }
 
+/** Cookie attributes for the key session — `strict` so no other site can spend it. */
+export function byokCookieOptions(req: Request, maxAgeSeconds = BYOK_MAX_AGE_SECONDS) {
+  return credentialCookieOptions(req, maxAgeSeconds, "strict");
+}
+
 export function byokRequiredResponse(): NextResponse {
   return NextResponse.json(
     { error: "Connect an Anthropic or OpenAI API key to use AI features.", code: "byok_required", retryable: false },
     { status: 401, headers: { "Cache-Control": "no-store" } },
   );
-}
-
-/** Prevent another origin from setting or clearing the credential cookie. */
-export function isSameOrigin(req: Request): boolean {
-  const origin = req.headers.get("origin");
-  if (!origin) return false;
-  const url = new URL(req.url);
-  const host = req.headers.get("host");
-  const forwardedProto = req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
-  const expected = host ? `${forwardedProto || url.protocol.slice(0, -1)}://${host}` : url.origin;
-  return origin === expected;
-}
-
-export function secureCookieFor(req: Request): boolean {
-  const forwardedProto = req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
-  return forwardedProto ? forwardedProto === "https" : new URL(req.url).protocol === "https:";
 }

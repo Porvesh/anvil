@@ -32,6 +32,19 @@
   margin: 20px 0 0;
   line-height: 1.5;
 }
+/* Reads as a continuation of the claim above it, not a competing call to
+   action — the JD box below is still the primary path. */
+.heroDemo {
+  display: inline-block;
+  margin-top: 16px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid rgba(122, 178, 235, 0.35);
+  color: var(--blue);
+  font-size: 14px;
+}
+.heroDemo:hover {
+  border-bottom-color: var(--blue);
+}
 
 
 .starter {

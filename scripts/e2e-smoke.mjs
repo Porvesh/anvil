@@ -72,6 +72,35 @@ async function main() {
   let tailoredGenerationRequests = 0;
   let contributionRequests = 0;
   let contributionOutcome = "rejected";
+  let authRequests = 0;
+  let lastSignInRequest = null;
+  let signedInAs = null;
+
+  // Sending mail is an outbound side effect, so it is stubbed here for the same
+  // reason the model endpoints are. Everything the stub stands in for — tokens,
+  // cookies, redirects, the anonymous-work merge — is covered against the real
+  // handlers in tests/authRoutes.test.ts and tests/authAccount.test.ts.
+  await page.route("**/api/auth/request", async (route) => {
+    authRequests += 1;
+    lastSignInRequest = route.request().postDataJSON();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ sent: true, expiresInMinutes: 15 }),
+    });
+  });
+  // Named so the "coming soon" check below can lift it and put it back. The
+  // stub stands in for a deployment that has mail configured; the unconfigured
+  // case is asserted against the real handler.
+  const sessionStub = async (route) => {
+    if (route.request().method() === "DELETE") signedInAs = null;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ signedIn: Boolean(signedInAs), email: signedInAs, signInAvailable: true }),
+    });
+  };
+  await page.route("**/api/auth/session", sessionStub);
   await page.route("**/api/byok", async (route) => {
     const method = route.request().method();
     if (method === "POST") {
@@ -296,6 +325,84 @@ async function main() {
     [...document.querySelectorAll("main li .pill")].every((pill) => pill.textContent?.trim() === "Review"),
   );
   log("✓ problem bank search, topics, filters, and shareable URL work");
+
+  // The recorded demo runs with no key and no model: the diff, the score, and
+  // the follow-up all have to render for a first-time visitor.
+  await page.goto(`${BASE}/demo`, { waitUntil: "networkidle" });
+  await page.getByRole("heading", { name: "A code review, graded" }).waitFor();
+  await page.getByText("SQL injection").first().waitFor();
+  await page.getByRole("button", { name: /See how it scored/ }).click();
+  await page.getByText("How this was scored").waitFor();
+  // The recorded comments catch two of the three seeded flaws and raise one
+  // nit, so the real matcher and the real arithmetic must land on 67 − 12 = 55.
+  // If either changes, this fails rather than the demo quietly misrepresenting.
+  await page.getByText("2/3 seeded").waitFor();
+  await page.getByText("1 × −12").waitFor();
+  await page.getByText("55/100").waitFor();
+  // Rating belongs to someone who solved it; the demo viewer did not.
+  if (await page.getByText("Was this a good problem?").count()) {
+    throw new Error("Recorded demo offered a curation vote.");
+  }
+  await page.getByRole("button", { name: /the follow-up/ }).click();
+  await page.getByText(/Recorded transcript/).waitFor();
+  if (await page.getByPlaceholder(/Ask the interviewer/).count()) {
+    throw new Error("Recorded transcript offered a composer that cannot reply.");
+  }
+  log("✓ keyless demo walks PR → real grade (55, 2/3 caught, 1 false positive) → follow-up");
+
+  // Timed interview mode: armed by URL, started only on consent.
+  await page.goto(`${BASE}/solve/${debug.id}?interview=1`, { waitUntil: "networkidle" });
+  await page.getByRole("heading", { name: /minutes, one shot/ }).waitFor();
+  if (await page.locator("text=/\\d+:\\d\\d/").count()) throw new Error("Interview clock started before consent.");
+  await page.getByRole("button", { name: /Start the clock/ }).click();
+  await page.getByText(/4[45]:\d\d/).waitFor();
+  await page.getByText(/3 runs left/).waitFor();
+  await page.getByText(/We've got 45 minutes/).waitFor();
+  log("✓ interview mode gates on consent, then runs a clock and a run budget");
+
+  // Ending early submits, and the session shows up on the results.
+  await page.getByRole("button", { name: "End early" }).click();
+  await page.getByText("Deterministic smoke grade").waitFor();
+  await page.getByText(/runs used/).waitFor();
+  // The countdown belongs to the session, not to the results it produced.
+  if (await page.getByRole("button", { name: "End early" }).count()) {
+    throw new Error("Interview clock kept running after submission.");
+  }
+  log("✓ ending an interview submits and reports time and runs used");
+
+  // Sign-in must not be offered when the server cannot deliver a link. Checked
+  // against the real handler with the stub lifted, so this fails if the
+  // availability signal stops reaching the UI. Assumes the instance under test
+  // has no mail transport configured, which is the default for a checkout.
+  await page.unroute("**/api/auth/session", sessionStub);
+  await page.goto(`${BASE}/signin`, { waitUntil: "networkidle" });
+  await page.getByText(/Coming soon/).waitFor();
+  if (await page.getByLabel("Email address").count()) {
+    throw new Error("Sign-in form was offered even though no mail transport is configured.");
+  }
+  log("✓ sign-in reads as coming soon when no mail transport is configured");
+  await page.route("**/api/auth/session", sessionStub);
+
+  // Account UI. The mail transport is stubbed the same way the model endpoints
+  // are; the token, cookie, and merge behaviour are covered in tests/authRoutes.
+  await page.goto(`${BASE}/signin`, { waitUntil: "networkidle" });
+  await page.getByLabel("Email address").fill("smoke@anvil.test");
+  await page.getByRole("button", { name: /Email me a link/ }).click();
+  await page.getByText(/Link sent to smoke@anvil.test/).waitFor();
+  if (authRequests !== 1) throw new Error("Sign-in form did not call the request endpoint.");
+  if (!lastSignInRequest?.sessionId) {
+    throw new Error("Sign-in request omitted the anonymous session id, so nothing could be merged.");
+  }
+  log("✓ sign-in requests a link and carries the browser's anonymous id");
+
+  signedInAs = "smoke@anvil.test";
+  await page.goto(`${BASE}/history`, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: /Signed in as smoke@anvil.test/ }).waitFor();
+  if (await page.getByRole("link", { name: /^Sign in/ }).count()) {
+    throw new Error("History still advertised sign-in to a signed-in account.");
+  }
+  log("✓ a signed-in account is reflected across the app chrome");
+  signedInAs = null;
 
   // Keep the responsive regression in the cheap suite that runs on every push.
   await page.setViewportSize({ width: 390, height: 844 });

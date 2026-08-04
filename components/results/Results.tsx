@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Grade, ProblemType, Severity } from "@/lib/types";
@@ -40,12 +40,21 @@ export function Results({
   problemId,
   problemType,
   onReview,
+  rateable = true,
+  footer,
 }: {
   grade: Grade;
   mode: "debug" | "review" | "design";
   problemId: string;
   problemType: ProblemType;
   onReview: () => void;
+  /**
+   * Whether to offer the curation vote. False for the recorded demo, where the
+   * viewer solved nothing and so has no basis to rate the problem.
+   */
+  rateable?: boolean;
+  /** Replaces the default action row (demo walkthrough supplies its own). */
+  footer?: ReactNode;
 }) {
   const router = useRouter();
   const [loadingNext, setLoadingNext] = useState(false);
@@ -183,19 +192,21 @@ export function Results({
           </div>
         </div>
 
-        <ProblemRating problemId={problemId} />
+        {rateable && <ProblemRating problemId={problemId} />}
 
-        <div className={styles.actions}>
-          <Link href="/" className="btn-ghost">
-            Back to bank
-          </Link>
-          <button className="btn-ghost" onClick={onReview}>
-            Review my answer
-          </button>
-          <button className="btn-primary" onClick={nextProblem} disabled={loadingNext}>
-            {loadingNext ? "Finding one…" : `Next ${problemType} problem →`}
-          </button>
-        </div>
+        {footer ?? (
+          <div className={styles.actions}>
+            <Link href="/" className="btn-ghost">
+              Back to bank
+            </Link>
+            <button className="btn-ghost" onClick={onReview}>
+              Review my answer
+            </button>
+            <button className="btn-primary" onClick={nextProblem} disabled={loadingNext}>
+              {loadingNext ? "Finding one…" : `Next ${problemType} problem →`}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

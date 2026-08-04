@@ -69,6 +69,13 @@ export const hintBodySchema = z.object({
   doc: z.string().max(100_000).optional(),
   history: z.array(chatMessageSchema).max(40).default([]),
   userMessage: z.string().max(4_000).optional(),
+  /**
+   * Interview mode: the interviewer speaks unprompted. A closed set rather than
+   * free text, because the client is asking the model to talk without the user
+   * having said anything — the instruction has to come from the server
+   * (lib/interview.ts), not from whatever the page posts.
+   */
+  cue: z.enum(["checkpoint", "wrapUp"]).optional(),
 });
 export type HintBody = z.infer<typeof hintBodySchema>;
 
@@ -100,6 +107,19 @@ export const tailoredGenerateBodySchema = z.object({
   difficulty: z.enum(["easy", "medium", "hard"]),
 });
 export type TailoredGenerateBody = z.infer<typeof tailoredGenerateBodySchema>;
+
+/**
+ * POST /api/auth/request — ask for a sign-in link.
+ *
+ * The `sessionId` is the anonymous browser id whose work should be adopted on
+ * success. Optional: a first-time visitor signing in before solving anything has
+ * nothing to merge.
+ */
+export const signInRequestSchema = z.object({
+  email: z.email().max(320),
+  sessionId: z.string().min(1).max(128).optional(),
+});
+export type SignInRequest = z.infer<typeof signInRequestSchema>;
 
 /** Raw community text is accepted only by the request-local contribution route. */
 export const contributionBodySchema = z.object({

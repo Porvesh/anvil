@@ -7,11 +7,22 @@ import { getSessionId } from "@/lib/session";
 import { streamSSE } from "@/lib/sseClient";
 import { clearSolveDraft, readSolveDraft, writeSolveDraft } from "@/lib/solveDraft";
 import { notifyByokRequired } from "@/lib/byokClient";
+import {
+  INTERVIEW_DURATION_MS,
+  SCRIPTED_CUES,
+  cueKeysUpTo,
+  formatDuration,
+  nextCue,
+  readClock,
+  runBudget as readRunBudget,
+} from "@/lib/interview";
 import { DebugPane } from "./DebugPane";
 import { ReviewPane } from "./ReviewPane";
 import { DesignPane } from "./DesignPane";
 import { ProblemBrief } from "./ProblemBrief";
 import { GradingOverlay } from "./GradingOverlay";
+import { InterviewBar } from "./InterviewBar";
+import { InterviewGate } from "./InterviewGate";
 import { InterviewerPanel } from "@/components/ai/InterviewerPanel";
 import { Results } from "@/components/results/Results";
 import shell from "./Solve.module.css";
@@ -22,6 +33,19 @@ type Phase = "solve" | "results";
 function diffToText(problem: PublicProblem): string {
   return (problem.diff ?? [])
     .flatMap((h) => h.lines.map((l) => `${l.lineNo ?? ""}\t${l.kind === "add" ? "+" : l.kind === "del" ? "-" : " "}${l.content}`))
+    .join("\n");
+}
+
+/** The last run, flattened for the hint model — output plus what failed. */
+function latestRunOutput(result: RunResult | null): string | undefined {
+  if (!result) return undefined;
+  return [
+    result.output,
+    ...result.tests.filter((test) => !test.passed).map((test) => `FAIL ${test.name}${test.message ? `: ${test.message}` : ""}`),
+    result.error ? `ERROR: ${result.error}` : "",
+    result.timedOut ? "Execution timed out." : "",
+  ]
+    .filter(Boolean)
     .join("\n");
 }
 
@@ -48,7 +72,7 @@ const GREETINGS: Record<"debug" | "review" | "design", string> = {
  * edit/run/comment/write → submit → grade → Socratic follow-up — as a small
  * phase machine, mirroring the single-surface flow of the v1.html prototype.
  */
-export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
+export function SolveWorkspace({ problem, interview = false }: { problem: PublicProblem; interview?: boolean }) {
   const isDebug = problem.type === "debug";
   const isReview = problem.type === "review";
   const isDesign = problem.type === "design";
@@ -84,13 +108,24 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
   const [aiBusy, setAiBusy] = useState(false);
 
   // Solve started at (monotonic) — used to timestamp runs for approach
-  // grading. We no longer render a live-ticking clock in the top bar: it
-  // was pure pressure with no product signal (didn't feed the grade, was
-  // hidden on the results screen) and works against the 'we train
-  // judgment, not speed' thesis. If we want timing later, it should show
-  // up on results (post-facto), not as a stressor in the chrome.
+  // grading. Practice mode deliberately renders no live clock: it is pure
+  // pressure with no product signal (it doesn't feed the grade) and works
+  // against the 'we train judgment, not speed' thesis.
+  //
+  // Interview mode is the explicit opt-out from that, and only that: the clock
+  // below appears because the user asked for the constraint, never otherwise.
   const startedAt = useRef(Date.now());
   const readElapsed = () => Math.floor((Date.now() - startedAt.current) / 1000);
+
+  // --- interview mode ---
+  // `null` deadline means armed but not started (the gate is showing). Once set
+  // it is an absolute timestamp, saved with the draft, so a refresh resumes the
+  // same clock rather than granting a fresh 45 minutes.
+  const [deadline, setDeadline] = useState<number | null>(null);
+  const [interviewing, setInterviewing] = useState(interview);
+  const [modelAvailable, setModelAvailable] = useState<boolean | null>(null);
+  const deliveredCues = useRef(new Set<string>());
+  const budget = readRunBudget(runs.length);
 
   // Restore after hydration so server and client produce the same first render.
   // Reset first because client navigation between two /solve/[id] pages may reuse
@@ -121,21 +156,36 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
       setCode(draft.code);
     }
     if (draft?.chat.length) setChat(draft.chat);
+
+    // Resume an interview already in progress on this problem. An expired one
+    // is dropped rather than resumed: the session is over, and reopening the
+    // tab should not immediately auto-submit stale work.
+    const resumed = draft?.interviewDeadline;
+    const live = typeof resumed === "number" && resumed > Date.now();
+    deliveredCues.current = new Set();
+    setDeadline(live ? resumed : null);
+    setInterviewing(interview || live);
+    if (live) {
+      // Checkpoints already passed while the tab was closed are retired, not
+      // replayed — see nextCue.
+      cueKeysUpTo(readClock(resumed).elapsedMs).forEach((key) => deliveredCues.current.add(key));
+    }
+
     setDraftStatus(draft ? "Draft restored" : null);
     persistDraft.current = true;
     setDraftReady(true);
-  }, [mode, problem]);
+  }, [interview, mode, problem]);
 
   const saveDraft = useCallback(() => {
     if (!draftReady || !persistDraft.current || phase !== "solve") return;
-    const common = { problemId: problem.id, chat };
+    const common = { problemId: problem.id, chat, interviewDeadline: deadline ?? undefined };
     const saved = isDebug
       ? writeSolveDraft({ ...common, mode: "debug", files, activePath, runs, runResult })
       : isReview
         ? writeSolveDraft({ ...common, mode: "review", comments })
         : writeSolveDraft({ ...common, mode: "design", code });
     if (saved) setDraftStatus("Saved locally");
-  }, [activePath, chat, code, comments, draftReady, files, isDebug, isReview, phase, problem.id, runResult, runs]);
+  }, [activePath, chat, code, comments, deadline, draftReady, files, isDebug, isReview, phase, problem.id, runResult, runs]);
 
   useEffect(() => {
     if (!draftReady || !persistDraft.current || phase !== "solve") return;
@@ -152,6 +202,9 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
   // --- run code (debug) ---
   const runCode = useCallback(async () => {
     if (!problem.testSuite || running) return;
+    // Interview mode caps how many times the suite can be run. Enforced here as
+    // well as on the button so ⌘↵ cannot spend a run the UI says is gone.
+    if (deadline !== null && readRunBudget(runs.length).exhausted) return;
     setRunning(true);
     try {
       const result = await getRunner().run(files, problem.testSuite);
@@ -175,7 +228,7 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
     } finally {
       setRunning(false);
     }
-  }, [files, problem.testSuite, running]);
+  }, [deadline, files, problem.testSuite, running, runs.length]);
 
   // --- streaming interviewer helper ---
   // Each stream gets a generation id; a newer stream (or the submit flow, which
@@ -246,6 +299,24 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
   /** Transcript as sent to the model routes — never includes blank bubbles. */
   const historyFor = (messages: ChatMessage[]) => messages.filter((m) => m.content.trim() !== "");
 
+  /**
+   * The candidate's current work, in the shape /api/hint expects.
+   *
+   * Shared by the on-demand hint and interview mode's unprompted turns: an
+   * interviewer checking in has to be looking at the same screen the candidate
+   * is, or the check-in is noise.
+   */
+  const hintContext = useCallback(
+    () => ({
+      problemId: problem.id,
+      files: isDebug ? files : undefined,
+      output: isDebug ? latestRunOutput(runResult) : undefined,
+      diffText: isReview ? diffToText(problem) : undefined,
+      doc: isDesign ? code : undefined,
+    }),
+    [code, files, isDebug, isDesign, isReview, problem, runResult],
+  );
+
   // --- submit for grading ---
   const submit = useCallback(async () => {
     gradingAbort.current?.abort();
@@ -308,35 +379,65 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
       if (attemptId.current) {
         void streamInterviewer("/api/socratic", { attemptId: attemptId.current, history: historyFor(chat), userMessage: text }, text);
       } else {
-        const latestRun = runResult
-          ? [
-              runResult.output,
-              ...runResult.tests
-                .filter((test) => !test.passed)
-                .map((test) => `FAIL ${test.name}${test.message ? `: ${test.message}` : ""}`),
-              runResult.error ? `ERROR: ${runResult.error}` : "",
-              runResult.timedOut ? "Execution timed out." : "",
-            ]
-              .filter(Boolean)
-              .join("\n")
-          : undefined;
-        void streamInterviewer(
-          "/api/hint",
-          {
-            problemId: problem.id,
-            files: isDebug ? files : undefined,
-            output: isDebug ? latestRun : undefined,
-            diffText: isReview ? diffToText(problem) : undefined,
-            doc: isDesign ? code : undefined,
-            history: historyFor(chat),
-            userMessage: text,
-          },
-          text,
-        );
+        void streamInterviewer("/api/hint", { ...hintContext(), history: historyFor(chat), userMessage: text }, text);
       }
     },
-    [chat, problem, isDebug, isReview, isDesign, files, code, runResult, streamInterviewer],
+    [chat, hintContext, streamInterviewer],
   );
+
+  // --- interview mode: the interviewer speaks on their own schedule ---
+
+  /**
+   * Deliver one cue.
+   *
+   * With a key connected this is a real turn that has read the candidate's
+   * current work. Without one it is the scripted line: the clock, the run
+   * budget and the pressure are the substance of interview mode, and none of
+   * them should require a provider account.
+   */
+  const deliverCue = useCallback(
+    (cue: "opening" | "checkpoint" | "wrapUp" | "timeUp") => {
+      const scripted = cue === "opening" || cue === "timeUp" || modelAvailable === false;
+      if (scripted) {
+        setChat((prev) => [...prev, { role: "interviewer", content: SCRIPTED_CUES[cue] }]);
+        return;
+      }
+      void streamInterviewer("/api/hint", { ...hintContext(), history: historyFor(chat), cue });
+    },
+    [chat, hintContext, modelAvailable, streamInterviewer],
+  );
+
+  const startInterview = useCallback(() => {
+    setDeadline(Date.now() + INTERVIEW_DURATION_MS);
+    setChat([{ role: "interviewer", content: SCRIPTED_CUES.opening }]);
+    // The run budget covers this session, so a problem already practised does
+    // not start with it spent. Edits are left alone — resetting someone's work
+    // because they switched modes would be its own kind of hostile.
+    setRuns([]);
+    setRunResult(null);
+    // Learn once whether unprompted turns can be model-written. Cheap, and it
+    // avoids a failed request (and an error bubble) at every checkpoint.
+    void fetch("/api/byok", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((status) => setModelAvailable(Boolean(status.connected)))
+      .catch(() => setModelAvailable(false));
+  }, []);
+
+  useEffect(() => {
+    if (deadline === null || phase !== "solve") return;
+    const tick = () => {
+      const due = nextCue(readClock(deadline), deliveredCues.current);
+      if (!due) return;
+      deliveredCues.current.add(due.key);
+      deliverCue(due.cue);
+      // Time is the one cue that also acts: whatever exists at zero is the
+      // submission, which is what makes the clock a real constraint.
+      if (due.cue === "timeUp") void submit();
+    };
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [deadline, deliverCue, phase, submit]);
 
   const canSubmit = useMemo(() => {
     if (submitting) return false;
@@ -347,13 +448,39 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
 
   const crumbType = isDebug ? "Debug" : isReview ? "Code review" : "System design";
   const submitLabel = isReview ? "Submit review" : isDesign ? "Submit design" : "Submit for review";
+  const inInterview = deadline !== null;
   const interviewerRole =
-    phase === "results" ? "Probing the gaps you missed" : isDesign ? "In the room — probes as you design" : "Quiet until you ask · then probes your gaps";
+    phase === "results"
+      ? "Probing the gaps you missed"
+      : inInterview
+        ? "In the room — watching you work"
+        : isDesign
+          ? "In the room — probes as you design"
+          : "Quiet until you ask · then probes your gaps";
   const interviewerFooter =
-    phase === "results" ? "The follow-up is where the learning is" : "Hints on-demand while you solve · full grading on submit";
+    phase === "results"
+      ? "The follow-up is where the learning is"
+      : inInterview
+        ? "Think out loud — they're listening either way"
+        : "Hints on-demand while you solve · full grading on submit";
+
+  // The clock is armed but not running: nothing is timed until it is started.
+  if (interviewing && !inInterview && phase === "solve") {
+    return (
+      <div className={shell.solve}>
+        <div className={shell.subbar}>
+          <span className={shell.crumb}>{crumbType}</span>
+          <h1 className={shell.title}>{problem.title}</h1>
+        </div>
+        <InterviewGate type={mode} onStart={startInterview} onDecline={() => setInterviewing(false)} />
+      </div>
+    );
+  }
 
   return (
     <div className={shell.solve}>
+      {/* Ending early is still ending: it submits, exactly as the clock would. */}
+      {inInterview && phase === "solve" && <InterviewBar deadline={deadline} onEnd={() => void submit()} />}
       <div className={shell.subbar}>
         <span className={shell.crumb}>{crumbType}</span>
         <h1 className={shell.title}>{problem.title}</h1>
@@ -391,14 +518,23 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
               // quick-suggestion chips ('Give me a nudge — not the answer')
               // that do the exact same thing, plus a free-form textarea.
               // One primary action in the top bar keeps focus on Submit.
-              <button
-                className={shell.submit}
-                onClick={submit}
-                disabled={!canSubmit}
-                title={isReview && comments.length === 0 ? "Leave at least one comment first" : undefined}
-              >
-                {submitting ? "Grading…" : submitLabel}
-              </button>
+              <>
+                {!inInterview && (
+                  // Offered, never imposed. Timed conditions are a different
+                  // exercise from practice, not a harder tier of it.
+                  <button className={shell.hintbtn} onClick={() => setInterviewing(true)}>
+                    Interview mode
+                  </button>
+                )}
+                <button
+                  className={shell.submit}
+                  onClick={submit}
+                  disabled={!canSubmit}
+                  title={isReview && comments.length === 0 ? "Leave at least one comment first" : undefined}
+                >
+                  {submitting ? "Grading…" : submitLabel}
+                </button>
+              </>
             )}
           </>
         )}
@@ -407,7 +543,27 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
       <div className={shell.stage}>
         <div className={`${shell.center} ${mobilePane === "workspace" ? shell.mobileActive : shell.mobileHidden}`}>
           {phase === "results" && grade ? (
-            <Results grade={grade} mode={mode} problemId={problem.id} problemType={problem.type} onReview={() => setPhase("solve")} />
+            <>
+              {inInterview && (
+                <div className={shell.interviewSummary}>
+                  <span className={shell.interviewSummaryBadge}>Interview</span>
+                  <span>
+                    Finished in <b>{formatDuration(readClock(deadline).elapsedMs)}</b> of{" "}
+                    {formatDuration(INTERVIEW_DURATION_MS)}
+                    {isDebug && (
+                      <>
+                        {" · "}
+                        <b>
+                          {budget.used} of {budget.limit}
+                        </b>{" "}
+                        runs used
+                      </>
+                    )}
+                  </span>
+                </div>
+              )}
+              <Results grade={grade} mode={mode} problemId={problem.id} problemType={problem.type} onReview={() => setPhase("solve")} />
+            </>
           ) : isDebug ? (
             <>
               <ProblemBrief type="debug" difficulty={problem.difficulty} prompt={problem.prompt} />
@@ -425,6 +581,7 @@ export function SolveWorkspace({ problem }: { problem: PublicProblem }) {
                 running={running}
                 result={runResult}
                 runs={runs}
+                runBudget={inInterview ? budget : undefined}
               />
             </>
           ) : isReview ? (
