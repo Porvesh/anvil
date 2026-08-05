@@ -20,11 +20,19 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid request", details: parsed.error.flatten() }, { status: 400 });
   }
-  const { problemId, files, code, output, diffText, doc, history, userMessage } = parsed.data;
+  const { problemId, files, code, output, diffText, doc, history, userMessage, cue } = parsed.data;
 
   const row = await prisma.problem.findUnique({ where: { id: problemId } });
   if (!row) return NextResponse.json({ error: "Problem not found" }, { status: 404 });
 
-  const stream = streamHintSSE(client, toPublicProblem(row), { files, code, output, diffText, doc }, history, userMessage, req.signal);
+  const stream = streamHintSSE(
+    client,
+    toPublicProblem(row),
+    { files, code, output, diffText, doc },
+    history,
+    userMessage,
+    req.signal,
+    cue,
+  );
   return new Response(stream, { headers: SSE_HEADERS });
 }

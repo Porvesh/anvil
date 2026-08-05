@@ -1,11 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import {
-  BYOK_MAX_AGE_SECONDS,
-  isSameOrigin,
-  sealApiKey,
-  secureCookieFor,
-  unsealApiKey,
-} from "../lib/anthropic/byok";
+import { BYOK_MAX_AGE_SECONDS, sealApiKey, unsealApiKey } from "../lib/anthropic/byok";
+import { isSameOrigin, secureCookieFor } from "../lib/http/origin";
 
 const previousSecret = process.env.BYOK_ENCRYPTION_KEY;
 

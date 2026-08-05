@@ -7,6 +7,7 @@ import { clientKey, rateLimit } from "@/lib/ratelimit";
 import type { RunRecord } from "@/lib/types";
 import { classifyModelError, isAbortError } from "@/lib/anthropic/reliability";
 import { byokRequiredResponse, userModelFromRequest } from "@/lib/anthropic/byok";
+import { ownerColumns, resolveOwner } from "@/lib/auth/identity";
 
 export const runtime = "nodejs";
 
@@ -66,7 +67,9 @@ export async function POST(req: NextRequest) {
       prisma.attempt.create({
         data: {
           problemId,
-          sessionId,
+          // Signed in, the attempt is stamped with the account too, so it
+          // survives this browser's localStorage being cleared.
+          ...ownerColumns(resolveOwner(req, sessionId)),
           submission: storedSubmission as object,
           runHistory: (runHistory ?? undefined) as object | undefined,
           grade: grade as unknown as object,

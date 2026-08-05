@@ -313,3 +313,14 @@
     padding: 10px 12px;
   }
 }
+
+/* Interview mode only: what is left of the run budget, next to the button that
+   spends it. */
+.budget {
+  color: var(--steel);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.budgetOut {
+  color: var(--amber);
+}

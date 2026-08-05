@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { RunRecord, RunResult, SolutionFile } from "@/lib/types";
+import type { RunBudget } from "@/lib/interview";
 import { getRunner } from "@/lib/pyodide/runner";
 import { IconLock } from "@/lib/icons";
 import styles from "./DebugPane.module.css";
@@ -81,6 +82,7 @@ export function DebugPane({
   running,
   result,
   runs,
+  runBudget,
 }: {
   files: SolutionFile[];
   activePath: string;
@@ -90,6 +92,11 @@ export function DebugPane({
   running: boolean;
   result: RunResult | null;
   runs: RunRecord[];
+  /**
+   * Interview mode's cap on test runs. Absent in practice, where running as
+   * often as you like is the point of having the engine in the browser.
+   */
+  runBudget?: RunBudget;
 }) {
   const [tab, setTab] = useState<"tests" | "console">("tests");
   const [engineReady, setEngineReady] = useState(false);
@@ -144,8 +151,18 @@ export function DebugPane({
           <span className={`${styles.engineDot} ${engineReady ? styles.ready : ""}`} />
           {engineReady ? "python ready · in-browser" : "warming python engine…"}
         </span>
+        {runBudget && (
+          <span className={`${styles.budget} ${runBudget.exhausted ? styles.budgetOut : ""}`}>
+            {runBudget.exhausted ? "run budget spent" : `${runBudget.remaining} run${runBudget.remaining === 1 ? "" : "s"} left`}
+          </span>
+        )}
         <span className={styles.kbd}>⌘↵</span>
-        <button className={`${styles.run} ${running ? styles.running : ""}`} onClick={onRun} disabled={running}>
+        <button
+          className={`${styles.run} ${running ? styles.running : ""}`}
+          onClick={onRun}
+          disabled={running || runBudget?.exhausted}
+          title={runBudget?.exhausted ? "No runs left — submit what you have and explain it" : undefined}
+        >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
             <path d="M8 5v14l11-7z" />
           </svg>
@@ -207,21 +224,40 @@ export function DebugPane({
           )}
         </div>
         <div className={styles.runbody}>
-          {tab === "tests" ? <Tests result={running ? null : result} running={running} engineReady={engineReady} /> : <Console result={result} />}
+          {tab === "tests" ? (
+          <Tests result={running ? null : result} running={running} engineReady={engineReady} runBudget={runBudget} />
+        ) : (
+          <Console result={result} />
+        )}
         </div>
       </div>
     </div>
   );
 }
 
-function Tests({ result, running, engineReady }: { result: RunResult | null; running: boolean; engineReady: boolean }) {
+function Tests({
+  result,
+  running,
+  engineReady,
+  runBudget,
+}: {
+  result: RunResult | null;
+  running: boolean;
+  engineReady: boolean;
+  runBudget?: RunBudget;
+}) {
   if (running)
     return <div className={styles.muted}>{engineReady ? "Executing test suite in your browser…" : "Booting the Python engine (first run only, ~10s), then executing…"}</div>;
   if (!result)
     return (
       <div className={styles.muted}>
         Press <span style={{ color: "var(--spark)" }}>Run tests</span> (or ⌘↵) to execute the suite — it runs entirely in your browser via
-        WebAssembly. Iterate until everything is green, then submit.
+        WebAssembly.{" "}
+        {/* "Iterate until it's green" is the practice-mode instruction and the
+            exact opposite of what a run budget is for. */}
+        {runBudget
+          ? `You have ${runBudget.limit} runs for the whole session — read first, then spend one.`
+          : "Iterate until everything is green, then submit."}
       </div>
     );
 

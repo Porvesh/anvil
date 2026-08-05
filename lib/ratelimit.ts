@@ -65,7 +65,14 @@ export interface RateLimitResult {
   limit: number;
 }
 
-function check(key: string, max: number, windowMs: number, now: number): RateLimitResult {
+/**
+ * The primitive: count one request against `key` and say whether it fits.
+ *
+ * Exported because not every bucket is a burst guard or a daily budget — sign-in
+ * email, for one, needs a slow per-address window that neither preset describes.
+ * Callers that fit a preset should use it rather than restating the numbers.
+ */
+export function limitRequests(key: string, max: number, windowMs: number, now = Date.now()): RateLimitResult {
   const counter = store.bump(key, windowMs, now);
   return {
     ok: counter.count <= max,
@@ -77,7 +84,7 @@ function check(key: string, max: number, windowMs: number, now: number): RateLim
 
 /** Burst guard: 20 requests per minute per client. */
 export function rateLimit(key: string, now = Date.now()): RateLimitResult {
-  return check(key, MAX_PER_WINDOW, WINDOW_MS, now);
+  return limitRequests(key, MAX_PER_WINDOW, WINDOW_MS, now);
 }
 
 /**
@@ -90,7 +97,20 @@ export function rateLimit(key: string, now = Date.now()): RateLimitResult {
 export function dailyLimit(key: string, now = Date.now()): RateLimitResult {
   const day = new Date(now).toISOString().slice(0, 10);
   const endOfDay = Date.parse(`${day}T23:59:59.999Z`);
-  return check(`${key}:${day}`, DAILY_GENERATIONS, endOfDay - now + 1, now);
+  return limitRequests(`${key}:${day}`, DAILY_GENERATIONS, endOfDay - now + 1, now);
+}
+
+/**
+ * Sign-in emails per address per hour.
+ *
+ * A different shape of abuse from the burst guard: the cost here is someone
+ * else's inbox, not our CPU, so the window is long and the ceiling low. Keyed by
+ * address rather than IP because the target of the nuisance is the address.
+ */
+export const SIGNIN_EMAILS_PER_HOUR = 5;
+
+export function signInEmailLimit(email: string, now = Date.now()): RateLimitResult {
+  return limitRequests(`signin:${email}`, SIGNIN_EMAILS_PER_HOUR, 60 * 60 * 1000, now);
 }
 
 /** Derive a client key from the request (IP, best-effort behind proxies). */

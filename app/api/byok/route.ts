@@ -2,14 +2,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { type NextRequest, NextResponse } from "next/server";
 import { validateUserKey, type AiProvider } from "@/lib/ai/client";
-import {
-  BYOK_COOKIE,
-  BYOK_MAX_AGE_SECONDS,
-  isSameOrigin,
-  readByokSession,
-  sealApiKey,
-  secureCookieFor,
-} from "@/lib/anthropic/byok";
+import { BYOK_COOKIE, byokCookieOptions, readByokSession, sealApiKey } from "@/lib/anthropic/byok";
+import { isSameOrigin } from "@/lib/http/origin";
 import { clientKey, rateLimit } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
@@ -68,14 +62,7 @@ export async function POST(req: NextRequest) {
   }
 
   const response = NextResponse.json({ connected: true, provider, expiresAt: sealed.expiresAt }, { headers: NO_STORE });
-  response.cookies.set(BYOK_COOKIE, sealed.value, {
-    httpOnly: true,
-    secure: secureCookieFor(req),
-    sameSite: "strict",
-    path: "/",
-    maxAge: BYOK_MAX_AGE_SECONDS,
-    priority: "high",
-  });
+  response.cookies.set(BYOK_COOKIE, sealed.value, byokCookieOptions(req));
   return response;
 }
 
@@ -84,12 +71,6 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Cross-origin request rejected" }, { status: 403, headers: NO_STORE });
   }
   const response = NextResponse.json({ connected: false, provider: null, expiresAt: null }, { headers: NO_STORE });
-  response.cookies.set(BYOK_COOKIE, "", {
-    httpOnly: true,
-    secure: secureCookieFor(req),
-    sameSite: "strict",
-    path: "/",
-    maxAge: 0,
-  });
+  response.cookies.set(BYOK_COOKIE, "", byokCookieOptions(req, 0));
   return response;
 }

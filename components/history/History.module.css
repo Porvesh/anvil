@@ -133,3 +133,50 @@
 .link:hover {
   text-decoration: underline;
 }
+
+/* Account state: either the sign-in receipt, or the offer to make this
+   history durable once there is something worth keeping. */
+.notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+  padding: 13px 15px;
+  border: 1px solid var(--edge);
+  border-radius: 9px;
+  background: var(--slab);
+  font-size: 12.5px;
+}
+.notice div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.notice strong {
+  font-size: 13px;
+}
+.notice span {
+  color: var(--steel);
+  line-height: 1.45;
+}
+.noticeGood {
+  display: grid;
+  gap: 2px;
+  border-color: rgba(87, 199, 138, 0.28);
+  background: rgba(87, 199, 138, 0.06);
+}
+.noticeAction {
+  flex: none;
+  color: var(--blue);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+@media (max-width: 620px) {
+  .notice {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+}

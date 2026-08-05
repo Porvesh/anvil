@@ -21,15 +21,17 @@ export async function generateMetadata({ params }: PageProps<"/solve/[id]">): Pr
   };
 }
 
-export default async function SolvePage({ params }: PageProps<"/solve/[id]">) {
+export default async function SolvePage({ params, searchParams }: PageProps<"/solve/[id]">) {
   const { id } = await params;
-  const row = await getProblem(id);
+  const [row, query] = await Promise.all([getProblem(id), searchParams]);
   if (!row) notFound();
 
+  // `?interview=1` arms timed conditions. The workspace still asks before
+  // starting the clock, so the link is shareable without ambushing anyone.
   return (
     <>
       <TopBar />
-      <SolveWorkspace problem={toPublicProblem(row)} />
+      <SolveWorkspace problem={toPublicProblem(row)} interview={query.interview === "1"} />
     </>
   );
 }

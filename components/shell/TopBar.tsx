@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { Logo } from "./Logo";
+import { Dialog, dialogStyles } from "./Dialog";
+import { AccountButton } from "@/components/auth/AccountButton";
 import { IconChevronDown, IconKey, IconLock } from "@/lib/icons";
 import { BYOK_REQUIRED_EVENT } from "@/lib/byokClient";
 import styles from "./TopBar.module.css";
@@ -46,7 +48,6 @@ export function TopBar() {
   const [showKey, setShowKey] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   function closeDialog() {
     if (busy) return;
@@ -75,19 +76,6 @@ export function TopBar() {
     window.addEventListener(BYOK_REQUIRED_EVENT, requireKey);
     return () => window.removeEventListener(BYOK_REQUIRED_EVENT, requireKey);
   }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeDialog();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    const focusTimer = window.setTimeout(() => inputRef.current?.focus(), 0);
-    return () => {
-      window.clearTimeout(focusTimer);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [busy, open]);
 
   async function connect(event: FormEvent) {
     event.preventDefault();
@@ -148,6 +136,7 @@ export function TopBar() {
           );
         })}
       </nav>
+      <AccountButton />
       <button
         className={`${styles.keyButton} ${connected ? styles.keyConnected : ""}`}
         onClick={() => {
@@ -162,92 +151,109 @@ export function TopBar() {
       </button>
 
       {open && (
-        <div
-          className={styles.backdrop}
-          onMouseDown={(event) => event.target === event.currentTarget && closeDialog()}
+        <Dialog
+          title="Connect an AI provider"
+          subtitle={connected ? "This browser is ready for AI grading." : "Use your own API billing for AI features."}
+          icon={<IconKey size={18} />}
+          busy={busy}
+          onClose={closeDialog}
         >
-          <section className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="byok-title">
-            <div className={styles.dialogHead}>
-              <div className={styles.keyMark}><IconKey size={18} /></div>
+          {connected ? (
+            <div className={dialogStyles.goodPanel}>
+              <span className={dialogStyles.goodDot} />
               <div>
-                <h2 id="byok-title">Connect an AI provider</h2>
-                <p>{connected ? "This browser is ready for AI grading." : "Use your own API billing for AI features."}</p>
+                <strong>{PROVIDERS[provider].label} connected</strong>
+                <span>Session expires automatically after 8 hours.</span>
               </div>
-              <button className={styles.close} onClick={closeDialog} disabled={busy} aria-label="Close">×</button>
             </div>
-
-            {connected ? (
-              <div className={styles.connectedPanel}>
-                <span className={styles.connectedDot} />
-                <div><strong>{PROVIDERS[provider].label} connected</strong><span>Session expires automatically after 8 hours.</span></div>
+          ) : (
+            <form className="form-fields" onSubmit={connect}>
+              <div className={styles.providerPicker} role="group" aria-label="AI provider">
+                {(Object.keys(PROVIDERS) as AiProvider[]).map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={provider === id ? styles.providerActive : ""}
+                    aria-pressed={provider === id}
+                    onClick={() => {
+                      setProvider(id);
+                      setApiKey("");
+                      setError(null);
+                    }}
+                    disabled={busy}
+                  >
+                    {PROVIDERS[id].label}
+                  </button>
+                ))}
               </div>
-            ) : (
-              <form onSubmit={connect}>
-                <div className={styles.providerPicker} role="group" aria-label="AI provider">
-                  {(Object.keys(PROVIDERS) as AiProvider[]).map((id) => (
-                    <button
-                      key={id}
-                      type="button"
-                      className={provider === id ? styles.providerActive : ""}
-                      aria-pressed={provider === id}
-                      onClick={() => {
-                        setProvider(id);
-                        setApiKey("");
-                        setError(null);
-                      }}
-                      disabled={busy}
-                    >
-                      {PROVIDERS[id].label}
-                    </button>
-                  ))}
-                </div>
-                <label htmlFor="provider-key">{PROVIDERS[provider].label} API key</label>
-                <input
-                  ref={inputRef}
-                  id="provider-key"
-                  type={showKey ? "text" : "password"}
-                  value={apiKey}
-                  onChange={(event) => setApiKey(event.target.value)}
-                  placeholder={PROVIDERS[provider].placeholder}
-                  autoComplete="off"
-                  spellCheck={false}
-                  disabled={busy}
-                />
-                <label className={styles.showKey}>
-                  <input type="checkbox" checked={showKey} onChange={(event) => setShowKey(event.target.checked)} />
-                  Show key
-                </label>
-                {error && <p className={styles.keyError} role="alert">{error}</p>}
-                <button className="btn-primary" type="submit" disabled={busy || apiKey.trim().length < 24}>
-                  {busy ? "Verifying…" : "Connect key"}
-                </button>
-              </form>
-            )}
-
-            {connected && error && <p className={styles.keyError} role="alert">{error}</p>}
-            <details className={styles.securityPanel}>
-              <summary className={styles.securityTitle}>
-                <IconLock size={14} />
-                <strong>How your key is protected</strong>
-                <IconChevronDown className={styles.securityChevron} />
-              </summary>
-              <ul>
-                <li><strong>Encrypted:</strong> Sealed with AES-256-GCM before the browser stores the session cookie.</li>
-                <li><strong>Not saved:</strong> Never written to Anvil&rsquo;s database, localStorage, sessionStorage, or app logs.</li>
-                <li><strong>Browser-isolated:</strong> The HttpOnly cookie cannot be read by page JavaScript and is Secure on HTTPS.</li>
-                <li><strong>Short-lived:</strong> Used only with your selected provider and removed automatically after eight hours.</li>
-              </ul>
-            </details>
-            <div className={styles.securityActions}>
-              <span>You can remove access at any time.</span>
-              {connected ? (
-                <button onClick={disconnect} disabled={busy}>{busy ? "Removing…" : "Remove key"}</button>
-              ) : (
-                <a href={PROVIDERS[provider].keyUrl} target="_blank" rel="noreferrer">Create a key ↗</a>
+              <label htmlFor="provider-key">{PROVIDERS[provider].label} API key</label>
+              <input
+                id="provider-key"
+                type={showKey ? "text" : "password"}
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+                placeholder={PROVIDERS[provider].placeholder}
+                autoComplete="off"
+                spellCheck={false}
+                disabled={busy}
+              />
+              <label className={styles.showKey}>
+                <input type="checkbox" checked={showKey} onChange={(event) => setShowKey(event.target.checked)} />
+                Show key
+              </label>
+              {error && (
+                <p className={dialogStyles.error} role="alert">
+                  {error}
+                </p>
               )}
+              <button className="btn-primary" type="submit" disabled={busy || apiKey.trim().length < 24}>
+                {busy ? "Verifying…" : "Connect key"}
+              </button>
+            </form>
+          )}
+
+          {connected && error && (
+            <p className={dialogStyles.error} role="alert">
+              {error}
+            </p>
+          )}
+          <details className={styles.securityPanel}>
+            <summary className={styles.securityTitle}>
+              <IconLock size={14} />
+              <strong>How your key is protected</strong>
+              <IconChevronDown className={styles.securityChevron} />
+            </summary>
+            <ul>
+              <li><strong>Encrypted:</strong> Sealed with AES-256-GCM before the browser stores the session cookie.</li>
+              <li><strong>Not saved:</strong> Never written to Anvil&rsquo;s database, localStorage, sessionStorage, or app logs.</li>
+              <li><strong>Browser-isolated:</strong> The HttpOnly cookie cannot be read by page JavaScript and is Secure on HTTPS.</li>
+              <li><strong>Short-lived:</strong> Used only with your selected provider and removed automatically after eight hours.</li>
+            </ul>
+          </details>
+          <div className={dialogStyles.actions}>
+            <span>You can remove access at any time.</span>
+            {connected ? (
+              <button className={dialogStyles.danger} onClick={disconnect} disabled={busy}>
+                {busy ? "Removing…" : "Remove key"}
+              </button>
+            ) : (
+              <a href={PROVIDERS[provider].keyUrl} target="_blank" rel="noreferrer">
+                Create a key ↗
+              </a>
+            )}
+          </div>
+          {/* Getting an API key is a real errand, and this dialog is where a
+              first-time visitor hits it. Offer the recorded example rather than
+              making them decide whether Anvil is worth the trip. */}
+          {!connected && (
+            <div className={dialogStyles.actions}>
+              <span>Not ready to get a key?</span>
+              <Link href="/demo" onClick={closeDialog}>
+                See a graded example →
+              </Link>
             </div>
-          </section>
-        </div>
+          )}
+        </Dialog>
       )}
     </header>
   );

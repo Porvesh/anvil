@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { userModelFromRequest, byokRequiredResponse, isSameOrigin } from "@/lib/anthropic/byok";
+import { userModelFromRequest, byokRequiredResponse } from "@/lib/anthropic/byok";
+import { isSameOrigin } from "@/lib/http/origin";
 import { prisma } from "@/lib/db";
 import { generateAndPersist } from "@/lib/generation";
 import { selectTailoredType } from "@/lib/generation/selectType";

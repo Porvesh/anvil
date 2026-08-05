@@ -15,6 +15,9 @@ This document separates properties that already scale from deployment work that 
 | Tailored generation on a bank miss | User-funded live request, once per bank asset | Amortized, but long-lived |
 | Community contribution | User-funded intake and dedupe; generation only for a novel qualified idea | Metadata writes plus optional amortized asset |
 | Operator batch generation | Separate worker, once per bank asset | Amortized |
+| Sign-in | Two small writes plus one outbound email, per session start | Negligible |
+| Interview mode | Browser clock; cues reuse the hint stream | None beyond the hint |
+| Recorded demo (`/demo`) | One indexed read plus pure scoring — no model call | Low |
 
 The web tier stores no live editor state and needs no session affinity. A candidate can run tests repeatedly without creating server work.
 
@@ -51,6 +54,8 @@ The domain schema is portable by design, but the operational migration has not b
 ### 2. Per-process rate limits
 
 `lib/ratelimit.ts` currently uses an in-memory `Map`. It is correct for local or one-instance deployments and ineffective across a fleet. The existing `Store.bump` boundary must be backed by Redis/KV before horizontal scaling. Generation's daily budget and interactive burst limits both need the shared store.
+
+The sign-in email limit (five per address per hour) is the one whose per-process scope has an *external* cost: without a shared store, N web instances mean N times as many emails can be sent to one address, and the provider's reputation — not just Anvil's CPU — pays for it. Install the shared store before running more than one instance with mail configured.
 
 ### 3. Model cost and capacity
 
@@ -108,6 +113,10 @@ Community generation has the same long-request constraint. Intake and duplicate 
 - [ ] Pooled and direct database URLs configured
 - [ ] Redis/KV rate-limit store installed
 - [ ] `BYOK_ENCRYPTION_KEY` configured as a high-entropy web secret
+- [ ] `AUTH_BASE_URL` set, so sign-in links cannot be built from a forged `Host`
+- [ ] Mail transport configured (`RESEND_API_KEY` or `SMTP_URL`, plus `AUTH_EMAIL_FROM`) and verified with `npm run mail:test` — without one, production refuses to send sign-in links
+- [ ] Shared rate-limit store installed before mail-configured horizontal scaling
+- [ ] Expired `LoginToken` rows purged on a schedule (`purgeExpiredLoginTokens`)
 - [ ] `ANTHROPIC_API_KEY` configured only for the worker/maintenance environment
 - [ ] `GENERATION_ADMIN_TOKEN` configured if the enqueue API is deployed
 - [ ] Web container includes `python3` and permits 800-second tailored-generation requests
