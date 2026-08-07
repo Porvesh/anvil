@@ -1,5 +1,5 @@
 /**
- * Anvil mark — the forge logo ported verbatim from docs/v1.html (an orange
+ * Anvil mark: an orange
  * spark/hammer over steel blocks). Placeholder identity; the name may change.
  */
 export function Logo({ size = 26 }: { size?: number }) {

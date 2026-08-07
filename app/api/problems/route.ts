@@ -13,7 +13,7 @@ export const runtime = "nodejs";
  *
  * Note (scale): ranking is computed in-code here, which is fine for a bank of
  * hundreds–low thousands. At larger scale this becomes a stored, indexed
- * `rankScore` column updated on each vote — see SCALING.md.
+ * persisted `rankScore` column updated on each vote.
  */
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);

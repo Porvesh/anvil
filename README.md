@@ -41,10 +41,10 @@ Every AI feature spends *your* provider key, so `/demo` exists to be read first:
 ## Quick start
 
 ```bash
-npm install
+npm ci
+cp .env.example .env      # replace BYOK_ENCRYPTION_KEY with a random value
 npm run db:migrate        # create the local SQLite db
 npm run seed              # sync the hand-authored bank without deleting attempts
-cp .env.example .env      # set BYOK_ENCRYPTION_KEY
 npm run dev               # → http://localhost:3000
 ```
 
@@ -79,6 +79,9 @@ With neither set, the link is written to the terminal running the dev server, an
 |---|---|
 | `npm run dev` | Dev server on :3000 |
 | `npm run build` | Production build |
+| `npm run lint` | Next.js, React, and TypeScript ESLint rules |
+| `npm run typecheck` | Generate route types and run TypeScript without emitting files |
+| `npm run check` | Lint, type-check, and run the deterministic test suite |
 | `npm test` | Unit and DB-backed tests — scoring, matcher, curation, auth, interview clock, routes |
 | `npm run e2e:smoke` | Deterministic browser flow with mocked model boundaries (needs the app running) |
 | `npm run e2e` | Live-model full loop in headless Chromium (needs the app running) |
@@ -105,7 +108,3 @@ E2E_BASE_URL=http://localhost:3001 npm run e2e
 | Document | What's in it |
 |---|---|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | The implemented system: diagrams, data model, API surface, security invariants |
-| [SCALING.md](SCALING.md) | What already scales, what doesn't yet, and the deployment checklist |
-| [docs/spec.md](docs/spec.md) | The product thesis the build follows |
-
-*"Anvil" is a working title. The logo is a placeholder. The forge metaphor — hammering raw skill into shape under heat — is the point.*

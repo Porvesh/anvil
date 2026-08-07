@@ -1,5 +1,5 @@
 /*
- * Anvil design system — the forge identity, ported from docs/v1.html.
+ * Anvil design system and forge identity.
  *
  * This file holds only what is genuinely global: the design tokens, the reset,
  * base typography, and a handful of shared primitives (buttons, pills, eyebrow)
@@ -158,7 +158,7 @@ textarea {
   justify-self: end;
 }
 
-/* Buttons — the three recurring variants from v1.html. A subtle lift on hover
+/* Buttons use three recurring variants. A subtle lift on hover
    and a press on :active make every button answer the click physically. */
 .btn-primary {
   background: var(--blue);

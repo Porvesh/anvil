@@ -70,7 +70,7 @@ const GREETINGS: Record<"debug" | "review" | "design", string> = {
  * The solve workspace (spec §6): the shared shell whose center pane morphs by
  * mode, plus the persistent interviewer panel. Owns the whole loop —
  * edit/run/comment/write → submit → grade → Socratic follow-up — as a small
- * phase machine, mirroring the single-surface flow of the v1.html prototype.
+ * phase machine for the single-surface solve flow.
  */
 export function SolveWorkspace({ problem, interview = false }: { problem: PublicProblem; interview?: boolean }) {
   const isDebug = problem.type === "debug";
@@ -562,7 +562,7 @@ export function SolveWorkspace({ problem, interview = false }: { problem: Public
                   </span>
                 </div>
               )}
-              <Results grade={grade} mode={mode} problemId={problem.id} problemType={problem.type} onReview={() => setPhase("solve")} />
+              <Results grade={grade} problemId={problem.id} problemType={problem.type} onReview={() => setPhase("solve")} />
             </>
           ) : isDebug ? (
             <>

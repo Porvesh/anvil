@@ -108,7 +108,6 @@ export function DemoWalkthrough({
         <section className={styles.stage}>
           <Results
             grade={grade}
-            mode="review"
             problemId={problem.id}
             problemType="review"
             onReview={() => setStep("review")}

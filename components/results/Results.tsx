@@ -36,7 +36,6 @@ function SeverityChip({ severity }: { severity?: Severity }) {
  */
 export function Results({
   grade,
-  mode,
   problemId,
   problemType,
   onReview,
@@ -44,7 +43,6 @@ export function Results({
   footer,
 }: {
   grade: Grade;
-  mode: "debug" | "review" | "design";
   problemId: string;
   problemType: ProblemType;
   onReview: () => void;

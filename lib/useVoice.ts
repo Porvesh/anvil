@@ -20,9 +20,12 @@ export function useVoice() {
 
   useEffect(() => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    setSupport({ stt: !!SR, tts: typeof window !== "undefined" && !!window.speechSynthesis });
+    const supportTimer = window.setTimeout(() => {
+      setSupport({ stt: !!SR, tts: !!window.speechSynthesis });
+    }, 0);
     // Stop any in-flight speech/recognition if the panel unmounts.
     return () => {
+      window.clearTimeout(supportTimer);
       recRef.current?.stop?.();
       window.speechSynthesis?.cancel();
     };

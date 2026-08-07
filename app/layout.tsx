@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Space_Grotesk, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 
-// Forge identity fonts (ported from v1.html). next/font self-hosts them, so there
+// Forge identity fonts. next/font self-hosts them, so there
 // are no render-blocking requests to Google's CDN and no layout shift.
 const displayFont = Space_Grotesk({
   variable: "--font-disp",

@@ -5,24 +5,41 @@ on:
   schedule:
     - cron: "17 9 * * 1"
 
+permissions:
+  contents: read
+
+concurrency:
+  group: live-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   live-e2e:
-    if: github.event_name == 'workflow_dispatch' || github.repository == 'Porvesh/anvil'
+    if: github.event_name == 'workflow_dispatch' || vars.LIVE_E2E_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    environment: live-e2e
     env:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      BYOK_ENCRYPTION_KEY: ${{ secrets.BYOK_ENCRYPTION_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      BYOK_ENCRYPTION_KEY: deterministic-live-e2e-key-at-least-32-characters
       DATABASE_URL: file:./live-e2e.db
       E2E_BASE_URL: http://127.0.0.1:3000
+      E2E_SHOT_DIR: /tmp/anvil-live-e2e
+      CI: true
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - run: npx prisma db push --skip-generate --accept-data-loss
+      - name: Require a provider credential
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$OPENAI_API_KEY" ]; then
+            echo "Configure ANTHROPIC_API_KEY or OPENAI_API_KEY in the live-e2e environment."
+            exit 1
+          fi
+      - run: npx prisma migrate deploy
       - run: npm run seed
       - run: npm run build
       - run: npx playwright install --with-deps chromium
@@ -36,3 +53,12 @@ jobs:
           cat /tmp/anvil-next.log
           exit 1
       - run: npm run e2e
+      - name: Upload live E2E diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: anvil-live-e2e-diagnostics
+          path: |
+            /tmp/anvil-next.log
+            /tmp/anvil-live-e2e
+          if-no-files-found: ignore

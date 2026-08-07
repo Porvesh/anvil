@@ -2,10 +2,20 @@
   "name": "anvil",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "packageManager": "npm@11.17.0",
+  "overrides": {
+    "dompurify": "3.4.13"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "next typegen && tsc --noEmit",
+    "check": "npm run lint && npm run typecheck && npm test",
     "seed": "tsx prisma/seed.ts",
     "db:migrate": "prisma migrate dev",
     "generate:bank": "tsx scripts/generate-bank.ts",
@@ -28,7 +38,7 @@
     "@anthropic-ai/sdk": "^0.110.0",
     "@monaco-editor/react": "^4.7.0",
     "@prisma/client": "^6.19.3",
-    "next": "16.2.10",
+    "next": "16.3.0",
     "nodemailer": "^9.0.3",
     "openai": "^7.3.0",
     "react": "19.2.4",
@@ -42,6 +52,8 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^6.0.3",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "16.3.0",
     "jsdom": "^29.1.1",
     "playwright": "^1.61.1",
     "prisma": "^6.19.3",

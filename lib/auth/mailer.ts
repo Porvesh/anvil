@@ -113,7 +113,6 @@ async function sendViaSmtp(message: MailMessage): Promise<void> {
  */
 function sendViaLog(message: MailMessage): void {
   const banner = "─".repeat(64);
-  // eslint-disable-next-line no-console -- this transport IS console output
   console.warn(
     [
       "",
