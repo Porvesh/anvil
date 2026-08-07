@@ -75,36 +75,13 @@ With neither set, the link is written to the terminal running the dev server, an
 
 ## Commands
 
-| Command | What it does |
-|---|---|
-| `npm run dev` | Dev server on :3000 |
-| `npm run build` | Production build |
-| `npm run lint` | Next.js, React, and TypeScript ESLint rules |
-| `npm run typecheck` | Generate route types and run TypeScript without emitting files |
-| `npm run check` | Lint, type-check, and run the deterministic test suite |
-| `npm test` | Unit and DB-backed tests — scoring, matcher, curation, auth, interview clock, routes |
-| `npm run e2e:smoke` | Deterministic browser flow with mocked model boundaries (needs the app running) |
-| `npm run e2e` | Live-model full loop in headless Chromium (needs the app running) |
-| `npm run seed` | Insert/update the hand-authored bank without deleting attempts |
-| `npm run db:migrate` | Create/apply Prisma migrations locally |
-| `npm run db:postgres` | Rewrite the datasource for the PostgreSQL production target |
-| `npm run generate:bank -- --type debug --count 3` | Generate verified problems through the shared pipeline |
-| `npm run worker` | Drain the generation queue (needs `python3` and the operator key) |
-| `npm run regrade` | Re-score stored attempts through the current grading path |
-| `npm run backfill:tags` | Tag untagged bank problems from the fixed vocabulary |
-| `npm run retire:thin` | Retire problems too small to be worth serving |
-| `npm run purge:jds` | Clear pasted JDs retained on older rows |
-| `npm run purge:tokens` | Drop spent and expired sign-in tokens |
-| `npm run mail:test -- you@example.com` | Send a test email through the configured transport |
-
-The browser suites target `http://localhost:3000`. Point them elsewhere with `E2E_BASE_URL`:
+Past `npm run dev` from the quick start:
 
 ```bash
-E2E_BASE_URL=http://localhost:3001 npm run e2e
+npm run check      # lint, type-check, and the deterministic test suite
+npm run build      # production build
+npm run e2e:smoke  # browser flow, model boundaries mocked
+npm run e2e        # the same loop against a live model
 ```
 
-## Documentation
-
-| Document | What's in it |
-|---|---|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | The implemented system: diagrams, data model, API surface, security invariants |
+The remaining scripts in `package.json` are operator work, needed only if you host Anvil yourself: generating bank problems, draining the worker queue, regrading stored attempts, tagging, retention purges, and a mail-transport check. Each is a thin wrapper over `scripts/`.
