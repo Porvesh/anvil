@@ -562,7 +562,7 @@ export function SolveWorkspace({ problem, interview = false }: { problem: Public
                   </span>
                 </div>
               )}
-              <Results grade={grade} mode={mode} problemId={problem.id} problemType={problem.type} onReview={() => setPhase("solve")} />
+              <Results grade={grade} problemId={problem.id} problemType={problem.type} onReview={() => setPhase("solve")} />
             </>
           ) : isDebug ? (
             <>

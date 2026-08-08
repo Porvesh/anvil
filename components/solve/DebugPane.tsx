@@ -102,7 +102,10 @@ export function DebugPane({
   const [engineReady, setEngineReady] = useState(false);
 
   const runRef = useRef(onRun);
-  runRef.current = onRun;
+
+  useEffect(() => {
+    runRef.current = onRun;
+  }, [onRun]);
 
   useEffect(() => {
     let alive = true;

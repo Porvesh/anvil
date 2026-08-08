@@ -67,13 +67,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           }
 
           await new Promise<void>((resolve) => {
-            let timer: ReturnType<typeof setTimeout>;
             const done = () => {
               clearTimeout(timer);
               req.signal.removeEventListener("abort", done);
               resolve();
             };
-            timer = setTimeout(done, POLL_MS);
+            const timer = setTimeout(done, POLL_MS);
             req.signal.addEventListener("abort", done, { once: true });
           });
         }

@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { type NextRequest, NextResponse } from "next/server";
-import { validateUserKey, type AiProvider } from "@/lib/ai/client";
+import { validateUserKey } from "@/lib/ai/client";
 import { BYOK_COOKIE, byokCookieOptions, readByokSession, sealApiKey } from "@/lib/anthropic/byok";
 import { isSameOrigin } from "@/lib/http/origin";
 import { clientKey, rateLimit } from "@/lib/ratelimit";
